@@ -1,0 +1,8 @@
+# 密钥与环境（§16：webhook/密钥不入 git，.env.example 为模板）
+.env
+.venv/
+__pycache__/
+*.pyc
+data/logs/
+data/charts/
+data/backtest_reports/
