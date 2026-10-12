@@ -192,7 +192,7 @@ VALUES (%s,%s,%s,%s,%s)
 """
 
 
-def insert_push_log(conn, *, signal_id: int, channel: str, status: str,
+def insert_push_log(conn, *, signal_id: int | None, channel: str, status: str,
                     message_id: str | None = None, error: str | None = None) -> None:
     with conn.cursor() as cur:
         cur.execute(_PUSH_LOG_INSERT, (signal_id, channel, status, message_id, error))

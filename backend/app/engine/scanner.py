@@ -217,7 +217,7 @@ def _scan_with_conn(adapter: OKXAdapter, rules: list[dict], pool: list[str],
         conn.close()
 
 
-def main(once: bool = False, on_signal=None) -> None:
+def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
     adapter = OKXAdapter(settings.okx_proxy)
     conn = db.connect(settings.pg_dsn)
     pool = build_pool(adapter)
@@ -258,6 +258,9 @@ def main(once: bool = False, on_signal=None) -> None:
         sched.add_job(lambda tf=tf: job(tf), trigger_for(tf),
                       id=f"scan_{tf}", max_instances=1, coalesce=True)
     sched.add_job(hb, IntervalTrigger(seconds=60), id="heartbeat", max_instances=1)
+    if on_weekly:
+        sched.add_job(on_weekly, CronTrigger(day_of_week="mon", hour=1, minute=0),
+                      id="weekly_report", max_instances=1, coalesce=True)
     print("扫描器启动（Ctrl+C 退出）")
     conn.close()
     try:
