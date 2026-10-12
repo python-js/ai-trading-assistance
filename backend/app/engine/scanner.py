@@ -21,7 +21,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from app.adapters.market.akshare_cn import AkshareAdapter
 from app.adapters.market.ccxt_okx import OKXAdapter
 from app.core.config import settings
-from app.engine import replay
+from app.engine import flow, replay
 from app.engine.indicators import enrich
 from app.engine.rules_dsl import WARMUP_BARS, evaluate, parse_rule
 from app.models import db
@@ -303,6 +303,7 @@ def _evaluate_trigger(conn, adapter: OKXAdapter, rules: list[dict], internal: st
         print(f"  [警告] {internal} {ct} {tf} 样本不足({len(df)})，跳过评估")
         return []
     ind = enrich(df)
+    ind = flow.attach_if_needed(conn, ind, matching, internal, adapter.exchange)
     trigger = _utc(trigger_ms)
     atr = float(ind["atr14"].iloc[-1])
     out = []
@@ -366,6 +367,62 @@ def _scan_stock_with_conn(adapter: AkshareAdapter) -> list[dict]:
         conn.close()
 
 
+# ---------- 资金面采集（P2-1：funding 8h 结算点 + OI 采样，perp 标的） ----------
+
+FLOW_INTERVAL_MIN = 15
+
+
+def ensure_flow_history(adapter: OKXAdapter, conn, pool: list[str], days: int = 30) -> None:
+    """perp 资金面历史：库内缺失或落后 >1 天时回填 days 天（幂等）。"""
+    if "perp" not in settings.contract_types:
+        return
+    now = adapter.server_time()
+    for internal in pool:
+        sym = adapter.to_ccxt_symbol(internal, "perp")
+        if sym not in adapter.ex.markets:
+            continue
+        f = flow.load_funding(conn, internal, adapter.exchange)
+        o = flow.load_oi(conn, internal, adapter.exchange)
+        stale = (f.empty or o.empty
+                 or now - int(f["ts"].iloc[-1].timestamp() * 1000) > 86400_000
+                 or now - int(o["ts"].iloc[-1].timestamp() * 1000) > 86400_000)
+        if not stale:
+            continue
+        since = now - days * 86400_000
+        fh = adapter.fetch_funding_rate_history(sym, since=since, limit=1000)
+        db.upsert_funding_history(conn, internal, adapter.exchange, fh)
+        oi = adapter.fetch_open_interest_history(sym, "1h", since=since, paginate=True)
+        db.upsert_oi_history(conn, internal, adapter.exchange, oi)
+        print(f"  [资金面回填] {sym:18} funding={len(fh):4} oi_1h={len(oi):4}", flush=True)
+
+
+def collect_flow(adapter: OKXAdapter, conn, pool: list[str]) -> None:
+    """增量：全池 perp 的 funding 新结算点 + OI 当前采样（唯一键 do nothing，幂等）。"""
+    n = 0
+    for internal in pool:
+        sym = adapter.to_ccxt_symbol(internal, "perp")
+        if sym not in adapter.ex.markets:
+            continue
+        fh = adapter.fetch_funding_rate_history(sym, limit=5)
+        if fh:
+            db.upsert_funding_history(conn, internal, adapter.exchange, fh)
+        oi = adapter.fetch_open_interest(sym)
+        if oi and oi.get("openInterestAmount") is not None:
+            db.upsert_open_interest(conn, internal, adapter.exchange,
+                                    oi.get("timestamp") or adapter.server_time(),
+                                    oi["openInterestAmount"], oi.get("openInterestValue"))
+        n += 1
+    print(f"  [资金面] 采集 {n} 个永续标的", flush=True)
+
+
+def _flow_with_conn(adapter: OKXAdapter, startup_pool: list[str]) -> None:
+    conn = db.connect(settings.pg_dsn)
+    try:
+        collect_flow(adapter, conn, active_pool(conn, startup_pool))
+    finally:
+        conn.close()
+
+
 def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
     adapter = OKXAdapter(settings.okx_proxy)
     stock_adapter = AkshareAdapter()
@@ -379,6 +436,7 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
     seed_rules(conn, pool)
     seed_stock(conn, spool)
     ensure_stock_history(stock_adapter, conn, spool)
+    ensure_flow_history(adapter, conn, pool)
     rules = load_rules(conn)
     print(f"规则 {len(rules)} 条: {sorted({r['timeframe'] for r in rules})} 周期")
 
@@ -421,6 +479,7 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
         for tf in tfs:
             job(tf)
         job_stock()
+        _flow_with_conn(adapter, pool)
         conn.close()
         return
 
@@ -431,6 +490,10 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
     if spool:
         sched.add_job(job_stock, CronTrigger(hour=7, minute=5, second=5),
                       id="scan_stock_1d", max_instances=1, coalesce=True)
+    if "perp" in cts:
+        sched.add_job(lambda: _flow_with_conn(adapter, pool),
+                      IntervalTrigger(minutes=FLOW_INTERVAL_MIN),
+                      id="flow_collect", max_instances=1, coalesce=True)
     sched.add_job(hb, IntervalTrigger(seconds=60), id="heartbeat", max_instances=1)
     if on_weekly:
         sched.add_job(on_weekly, CronTrigger(day_of_week="mon", hour=1, minute=0),

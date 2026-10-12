@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from app.engine import flow
 from app.engine.indicators import enrich
 from app.engine.rules_dsl import WARMUP_BARS, evaluate, parse_rule
 from app.models import db
@@ -19,6 +20,7 @@ def replay_rule(conn, r: dict) -> tuple[int, int]:
         print(f"  [跳过] {r['name']:28} 样本不足({len(df)})")
         return 0, 0
     ind = enrich(df)
+    ind = flow.attach_if_needed(conn, ind, [r], r["symbol"], r["exchange"])
     atr_by_ts = {pd.Timestamp(t): a for t, a in zip(ind["ts"], ind["atr14"])}
     events = evaluate(parse_rule(r["dsl_json"]), ind)
     new = 0

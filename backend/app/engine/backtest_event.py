@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from app.engine import ledger
+from app.engine import flow, ledger
 from app.engine.indicators import enrich
 from app.engine.rules_dsl import evaluate, parse_rule
 from app.models import db
@@ -25,6 +25,7 @@ def run_rule(conn, rule: dict, *, start=None, end=None, fees: float = ledger.FEE
     df = db.load_ohlcv(conn, rule["symbol"], rule["exchange"], rule["contract_type"],
                        rule["timeframe"], start=start, end=end)
     ind = enrich(df)
+    ind = flow.attach_if_needed(conn, ind, [rule], rule["symbol"], rule["exchange"])
     events = evaluate(parse_rule(rule["dsl_json"]), ind)
     slip = slip_bps / 10_000
 
@@ -118,6 +119,7 @@ def compare(conn, rule: dict, *, fees: float = ledger.FEES,
         df = db.load_ohlcv(conn, rule["symbol"], rule["exchange"], rule["contract_type"],
                            rule["timeframe"])
         ind = enrich(df)
+        ind = flow.attach_if_needed(conn, ind, [rule], rule["symbol"], rule["exchange"])
         e, x = signals_from_rule(parse_rule(rule["dsl_json"]), ind)
         idx = pd.DatetimeIndex(ind["ts"])
         close = pd.Series(ind["close"].to_numpy(), index=idx)
