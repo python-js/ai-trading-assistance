@@ -17,6 +17,7 @@ from app.engine.indicators import enrich
 from app.models import db
 
 CHART_DIR = "data/charts"
+_AUTO = object()  # push_signal img_path 的"未指定"哨兵（区分"内部渲染"与"外部已渲染/失败"）
 
 
 def render_signal_md(s: dict) -> str:
@@ -28,10 +29,17 @@ def render_signal_md(s: dict) -> str:
     vl = _votes_line(s)
     if vl:
         lines.append(vl)
+    cv = s.get("chart")
+    if cv:
+        lines.append(f"> 读图：{_STANCE_CN.get(cv[1]['stance'], cv[1]['stance'])} {cv[0]:.2f}"
+                     f" · {cv[1]['reason'][:40]}")
     if s.get("reason"):
         lines.append(f"> AI 研判：{s['reason']}")
     lines.append("> *研究信号，非投资建议*")
     return "\n".join(lines)
+
+
+_STANCE_CN = {"agree": "赞同", "oppose": "反对", "neutral": "中性"}
 
 
 def _votes_line(s: dict) -> str | None:
@@ -69,17 +77,20 @@ class WeComNotifier:
                 raise RuntimeError(f"errcode={body.get('errcode')} {body.get('errmsg')}")
             return
 
-    def push_signal(self, s: dict, conn) -> bool:
-        """一条信号 = markdown + image（出图成功时）。返回文本是否送达。"""
-        img_path, err = None, None
-        try:
-            df = db.load_ohlcv(conn, s["symbol"], s["exchange"], s["contract_type"],
-                               s["timeframe"], limit=600)
-            ind = enrich(df)
-            img_path = render(ind, [s], f"{CHART_DIR}/signal_{s['signal_id']}.png",
-                              title=f"{s['symbol']} {s['timeframe']} {s['rule']}")
-        except Exception as e:  # 图表失败不阻断文本推送
-            err = f"chart: {e}"
+    def push_signal(self, s: dict, conn, img_path: str | None = _AUTO) -> bool:
+        """一条信号 = markdown + image（出图成功时）。返回文本是否送达。
+        img_path 缺省=内部渲染；显式传（含 None）=用外部产物（P2-6 读图票共用同一张图）。"""
+        err = None
+        if img_path is _AUTO:
+            img_path = None
+            try:
+                df = db.load_ohlcv(conn, s["symbol"], s["exchange"], s["contract_type"],
+                                   s["timeframe"], limit=600)
+                ind = enrich(df)
+                img_path = render(ind, [s], f"{CHART_DIR}/signal_{s['signal_id']}.png",
+                                  title=f"{s['symbol']} {s['timeframe']} {s['rule']}")
+            except Exception as e:  # 图表失败不阻断文本推送
+                err = f"chart: {e}"
         try:
             self._post({"msgtype": "markdown", "markdown": {"content": render_signal_md(s)}})
         except Exception as e:
