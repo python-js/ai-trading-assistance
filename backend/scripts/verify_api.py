@@ -126,6 +126,12 @@ def main() -> None:
 
     with conn.cursor() as cur:
         cur.execute("DELETE FROM annotation WHERE id=%s", (aid,))
+        # P3-1 起标注 note 自动向量化入知识库：同步清理本测试笔记产生的条目
+        cur.execute("""SELECT id FROM knowledge_chunk WHERE source_type='note'
+                       AND meta_json->>'signal_id' = %s ORDER BY id DESC LIMIT 1""", (str(sid),))
+        krow = cur.fetchone()
+        if krow:
+            cur.execute("DELETE FROM knowledge_chunk WHERE id=%s", (krow[0],))
     conn.commit()
     conn.close()
     if FAIL:
