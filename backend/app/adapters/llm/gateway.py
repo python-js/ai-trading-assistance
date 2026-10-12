@@ -42,6 +42,10 @@ def complete(task: str, messages: list[dict], *, json_mode: bool = False,
     """按任务选模 + 回退链调用；返回首个成功响应。全链失败抛 LlmError。"""
     if not settings.llm_api_key:
         raise LlmError("LLM_API_KEY 未配置（.env）")
+    # qwen3 系思考型模型不关思考会先输出数千 token 推理链（实测单次 1.4~92s 方差过大，
+    # 30s 超时下失败率高），本系统各任务只需短结构化输出，统一关闭；
+    # 兼容非思考模型（实测 qwen-plus 传该参数正常），调用方可用 kw 覆盖
+    kw.setdefault("extra_body", {"enable_thinking": False})
     last: Exception | None = None
     for model in models_for(task):
         t0 = time.time()
