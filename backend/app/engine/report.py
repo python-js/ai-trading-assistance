@@ -1,11 +1,13 @@
 """P1-2 台账报表（S6）：按 exit_ts 窗口聚合已平仓 → 指标 + 企微 markdown。
 
 指标：n 笔数 / 胜率（pnl>0）/ 盈亏比 PF=Σ盈/|Σ亏| / 平均收益 pnl_pct / 累计盈亏 USDT。
-分组：总览 + 按周期 + 按标的。窗口左闭右开 [start, end)，均为 UTC。
+分组：总览 + 按周期 + 按标的。窗口左闭右开 [start, end)，为北京时间（存储仍 UTC）。
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+
+from app.core.tz import to_bj
 
 _QUERY = """
 SELECT p.symbol, r.timeframe, p.exit_ts, p.pnl, p.pnl_pct
@@ -18,8 +20,8 @@ ORDER BY p.exit_ts
 
 
 def last_week_window(now: datetime | None = None) -> tuple[datetime, datetime]:
-    """上周一 00:00 ~ 本周一 00:00 UTC（周报窗口；周一 01:00 调度运行时恰为完整上周）。"""
-    now = now or datetime.now(timezone.utc)
+    """上周一 00:00 ~ 本周一 00:00 北京时间（周报窗口；周一 09:00 调度运行时恰为完整上周）。"""
+    now = to_bj(now or datetime.now(timezone.utc))
     end = now.replace(hour=0, minute=0, second=0, microsecond=0)
     return end - timedelta(days=7), end
 
@@ -79,7 +81,7 @@ def _group_line(label: str, s: dict) -> str:
 
 def render_markdown(rep: dict) -> str:
     o = rep["overall"]
-    lines = [f"### 台账报表 {rep['start']:%m-%d} ~ {rep['end']:%m-%d} (UTC)"]
+    lines = [f"### 台账报表 {rep['start']:%m-%d} ~ {rep['end']:%m-%d}（北京时间）"]
     if o["n"] == 0:
         lines.append("**总览**：窗口内无已平仓交易")
     else:

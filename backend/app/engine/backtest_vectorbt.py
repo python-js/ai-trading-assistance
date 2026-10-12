@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import vectorbt as vbt
 
+from app.core.tz import CST
 from app.engine.rules_dsl import WARMUP_BARS, Rule
 
 ANNUAL_BARS = {"1m": 525600, "1h": 8760, "4h": 2190, "1d": 365}
@@ -273,7 +274,7 @@ def run_full(df: pd.DataFrame, rule: Rule, *, params: dict, symbol: str, timefra
         wf = {"folds": [], "grid": pd.DataFrame(), "oos_curve": pd.Series(dtype=float),
               "mean_is_sharpe": None, "mean_oos_sharpe": None,
               "decay_ratio(样本内外衰减)": None}
-    meta = {"run_ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    meta = {"run_ts": datetime.now(CST).isoformat(timespec="seconds"),
             "symbol": symbol, "timeframe": timeframe, "engine": ENGINE, "seed": seed,
             "fees": fees, "slippage_bps": slippage_bps, "params": params,
             "wf": wf_cfg or {},

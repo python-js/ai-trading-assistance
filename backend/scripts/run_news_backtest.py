@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings
+from app.core.tz import CST
 from app.engine import news_backtest
 from app.models import db
 
@@ -26,7 +27,7 @@ def main() -> None:
     finally:
         conn.close()
     print(md)
-    out = pathlib.Path("data/backtest_reports") / f"news_ic_{datetime.now(timezone.utc):%Y%m%d}.md"
+    out = pathlib.Path("data/backtest_reports") / f"news_ic_{datetime.now(CST):%Y%m%d}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(md, encoding="utf-8")
     print(f"\n已存 {out}")

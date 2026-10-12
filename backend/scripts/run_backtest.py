@@ -7,10 +7,12 @@ import json
 import pathlib
 import sys
 import time
+from datetime import datetime
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings
+from app.core.tz import CST
 from app.engine import backtest_vectorbt as bt
 from app.engine.indicators import enrich
 from app.engine.rules_dsl import parse_rule
@@ -66,7 +68,7 @@ def main() -> None:
     print(f"成本: taker {FEES*100:.3f}% + 滑点 {SLIP}bps | 主规则 ema{MAIN['fast']}_{MAIN['slow']}")
     print(f"walk-forward: 训练{WF_CFG['train_bars']}根 / 样本外{WF_CFG['test_bars']}根 / 步进{WF_CFG['step_bars']}根\n")
 
-    stamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+    stamp = datetime.now(CST).strftime("%Y%m%dT%H%M%S")
     out1 = pathlib.Path(f"data/backtest_reports/ema_{MAIN['fast']}{MAIN['slow']}_{TF}_{stamp}")
     t0 = time.time()
     m1 = run(out1, df)

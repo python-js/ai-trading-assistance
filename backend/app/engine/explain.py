@@ -10,6 +10,7 @@ import json
 import re
 
 from app.adapters.llm import gateway
+from app.core.tz import to_bj
 
 MAX_LEN = 200
 _BANNED = re.compile(r"保证|必涨|必跌|稳赚|包赚|无风险|一定会|100%|百分百|必定|梭哈|重仓")
@@ -27,7 +28,7 @@ def _context(s: dict) -> str:
     lines = [f"标的：{s['symbol']}（{s['contract_type']}）  周期：{s['timeframe']}",
              f"信号：{'买入' if s['direction'] == 'entry' else '卖出'}  "
              f"价格 {s['price']:.6g}（区间 {s['price_zone_low']:.6g}~{s['price_zone_high']:.6g}）",
-             f"规则：{s['rule']}  时间：{s['ts']:%Y-%m-%d %H:%M} UTC"]
+             f"规则：{s['rule']}  时间：{to_bj(s['ts']):%Y-%m-%d %H:%M} 北京时间"]
     v = s.get("votes") or {}
     for k, label in _LABELS:
         if k not in v:

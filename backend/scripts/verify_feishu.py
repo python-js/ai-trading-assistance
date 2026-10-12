@@ -136,10 +136,10 @@ def main() -> None:
     # 5) push_markdown（周报）：标题提取 + NULL 记录
     srv = new_server(code=0)
     n = FeishuNotifier(f"http://127.0.0.1:{srv.server_port}/hook/T")
-    md = "### 台账报表 10-05 ~ 10-12 (UTC)\n**总览**：208 笔 · 胜率 16.8%\n- 1h：12 笔"
+    md = "### 台账报表 10-05 ~ 10-12（北京时间）\n**总览**：208 笔 · 胜率 16.8%\n- 1h：12 笔"
     assert n.push_markdown(md, conn) is True
     p = srv.posts[0]
-    assert p["card"]["header"]["title"]["content"] == "台账报表 10-05 ~ 10-12 (UTC)"
+    assert p["card"]["header"]["title"]["content"] == "台账报表 10-05 ~ 10-12（北京时间）"
     assert p["card"]["elements"][0]["text"]["content"].startswith("**总览**")
     with conn.cursor() as cur:
         cur.execute("""SELECT signal_id FROM push_log WHERE channel='feishu'

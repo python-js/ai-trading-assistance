@@ -13,6 +13,7 @@ import time
 import requests
 
 from app.adapters.chart.mplfinance_chart import render
+from app.core.tz import to_bj
 from app.engine.indicators import enrich
 from app.models import db
 
@@ -25,7 +26,7 @@ def render_signal_md(s: dict) -> str:
     lines = [f"### {d}信号 {s['symbol']} {s['timeframe']}",
              f"> 规则：{s['rule']}",
              f"> 价格：{s['price']:.6g}（区间 {s['price_zone_low']:.6g} ~ {s['price_zone_high']:.6g}）",
-             f"> 时间：{s['ts']:%Y-%m-%d %H:%M} UTC · {s['contract_type']}"]
+             f"> 时间：{to_bj(s['ts']):%Y-%m-%d %H:%M} 北京时间 · {s['contract_type']}"]
     vl = _votes_line(s)
     if vl:
         lines.append(vl)

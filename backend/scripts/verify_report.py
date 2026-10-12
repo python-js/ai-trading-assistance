@@ -1,6 +1,6 @@
 """P1-2 报表验证（离线；mock webhook，不触达真实企微）：
 1) 独立复算：SQL 聚合（DB 引擎计算路径）与 report.build_report 全字段一致（总览/周期/标的）；
-2) 窗口边界：last_week_window 恒为"上周一 00:00 ~ 本周一 00:00"（周一 01:00 运行恰为完整上周）；
+2) 窗口边界：last_week_window 恒为"上周一 00:00 ~ 本周一 00:00 北京时间"（周一 09:00 北京运行恰为完整上周）；
 3) 空窗口：1970 窗口 0 笔不崩、渲染含"无已平仓交易"；
 4) mock webhook 端到端：push_markdown 内容一致 + push_log sent（signal_id NULL）；
 5) mock 业务错误 errcode=93000 → False + push_log failed。
@@ -17,6 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))  # backend/
 
 from app.adapters.notify.wecom import WeComNotifier
 from app.core.config import settings
+from app.core.tz import CST
 from app.engine import report
 from app.models import db
 
@@ -132,15 +133,14 @@ def main() -> None:
     print(f"1) 独立复算：n={rep['overall']['n']}（周期 {sorted(sql_tf)}，标的 {len(sql_sym)} 个），"
           f"字段比对 {'PASS' if not FAIL else 'FAIL'}")
 
-    # 2) 窗口边界：周一 01:00 运行 → [上周一 00:00, 本周一 00:00)
-    base = datetime(2026, 10, 12, tzinfo=timezone.utc)
-    monday = base - timedelta(days=base.weekday())
-    now = monday.replace(hour=1)
+    # 2) 窗口边界：周一 09:00 北京运行 → [上周一 00:00, 本周一 00:00) 北京
+    now = datetime(2026, 10, 12, 1, 0, tzinfo=timezone.utc)  # = 周一 09:00 北京
+    exp_e = datetime(2026, 10, 12, tzinfo=CST)               # = 本周一 00:00 北京
     s, e = report.last_week_window(now)
-    if not (e == monday and (e - s) == timedelta(days=7)
+    if not (e == exp_e and (e - s) == timedelta(days=7)
             and s.weekday() == 0 and e.weekday() == 0):
         FAIL.append(f"window: now={now} → [{s},{e})")
-    print(f"2) 窗口边界：{now:%m-%d %H:%M}(周一) → [{s:%m-%d %H:%M}, {e:%m-%d %H:%M}) "
+    print(f"2) 窗口边界：{now:%m-%d %H:%M}(UTC) → [{s:%m-%d %H:%M}, {e:%m-%d %H:%M}) 北京 "
           f"{'PASS' if not FAIL else 'FAIL'}")
 
     # 3) 空窗口

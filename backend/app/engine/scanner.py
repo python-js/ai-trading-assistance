@@ -21,6 +21,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from app.adapters.market.akshare_cn import AkshareAdapter
 from app.adapters.market.ccxt_okx import OKXAdapter
 from app.core.config import settings
+from app.core.tz import CST
 from app.engine import flow, news, replay, votes
 from app.engine.indicators import enrich
 from app.engine.rules_dsl import WARMUP_BARS, evaluate, parse_rule
@@ -261,7 +262,7 @@ def heartbeat_stock(adapter: AkshareAdapter, conn, pool: list[str]) -> None:
         age_days = (now - int(hi.timestamp() * 1000)) / 86_400_000
         if age_days > 5:  # 覆盖周末与小长假
             stale.append(f"{internal}:{age_days:.1f}天无新bar")
-    print(f"[心跳/A股] {_utc(now):%m-%d %H:%M:%S} 池{len(pool)}标的 | 停更: {stale or '无'}", flush=True)
+    print(f"[心跳/A股] {_utc(now).astimezone(CST):%m-%d %H:%M:%S} 池{len(pool)}标的 | 停更: {stale or '无'}", flush=True)
 
 
 # ---------- 采集 + 评估 ----------
@@ -350,7 +351,7 @@ def heartbeat(adapter: OKXAdapter, conn, pool: list[str], cts: tuple[str, ...],
                 age = now - int(hi.timestamp() * 1000) - tf_ms
                 if age > 2 * tf_ms:
                     stale.append(f"{internal}/{ct}/{tf}:滞后{age // 60000}min")
-    print(f"[心跳] {_utc(now):%m-%d %H:%M:%S} 池{len(pool)}标的 | 停更: {stale or '无'}", flush=True)
+    print(f"[心跳] {_utc(now).astimezone(CST):%m-%d %H:%M:%S} 池{len(pool)}标的 | 停更: {stale or '无'}", flush=True)
 
 
 # ---------- 入口 ----------
@@ -468,7 +469,7 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
     def job(tf: str) -> None:
         t0 = time.time()
         fired = _scan_with_conn(adapter, pool, cts, tf)
-        print(f"[{datetime.now(timezone.utc):%m-%d %H:%M:%S}] {tf:3} 扫描 {time.time() - t0:.1f}s "
+        print(f"[{datetime.now(CST):%m-%d %H:%M:%S}] {tf:3} 扫描 {time.time() - t0:.1f}s "
               f"新信号 {len(fired)}", flush=True)
         for s in fired:
             print(f"  ▶ {s['rule']} {s['direction']} @ {s['price']:.6g} "
@@ -481,7 +482,7 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
             return
         t0 = time.time()
         fired = _scan_stock_with_conn(stock_adapter)
-        print(f"[{datetime.now(timezone.utc):%m-%d %H:%M:%S}] {STOCK_TF:3} 扫描A股 "
+        print(f"[{datetime.now(CST):%m-%d %H:%M:%S}] {STOCK_TF:3} 扫描A股 "
               f"{time.time() - t0:.1f}s 新信号 {len(fired)}", flush=True)
         for s in fired:
             print(f"  ▶ {s['rule']} {s['direction']} @ {s['price']:.6g} "

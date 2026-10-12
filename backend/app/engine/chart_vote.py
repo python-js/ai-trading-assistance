@@ -14,6 +14,7 @@ import re
 
 from app.adapters.chart.mplfinance_chart import render
 from app.adapters.llm import gateway
+from app.core.tz import to_bj
 from app.engine.indicators import enrich
 from app.models import db
 
@@ -48,7 +49,7 @@ def run(s: dict, img_path: str) -> tuple[float, dict] | None:
         d = "买入" if s["direction"] == "entry" else "卖出"
         ctx = (f"信号：{d} {s['symbol']} {s['timeframe']}，价格 {s['price']:.6g}"
                f"（区间 {s['price_zone_low']:.6g}~{s['price_zone_high']:.6g}），"
-               f"规则 {s['rule']}，时间 {s['ts']:%Y-%m-%d %H:%M} UTC")
+               f"规则 {s['rule']}，时间 {to_bj(s['ts']):%Y-%m-%d %H:%M} 北京时间")
         r = gateway.complete("vision", [
             {"role": "system", "content": _SYSTEM},
             {"role": "user", "content": [

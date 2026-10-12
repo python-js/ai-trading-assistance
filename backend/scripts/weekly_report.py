@@ -1,7 +1,7 @@
 """P1-2 周报入口：重建台账 → 聚合窗口 → 打印；--push 推送企微（markdown）。
 
 用法：.venv/Scripts/python.exe backend/scripts/weekly_report.py [--push] [--days N]
-默认窗口：上周一 00:00 ~ 本周一 00:00 UTC（与扫描器周一 01:00 调度一致）；
+默认窗口：上周一 00:00 ~ 本周一 00:00 北京时间（与扫描器周一 01:00 UTC / 北京 09:00 调度一致）；
 --days N 改为最近 N 天滚动窗口（如 M2 问"过去两周"用 --days 14）。
 """
 import argparse

@@ -48,7 +48,7 @@ def _weekly() -> None:
         stats = ledger.rebuild(conn)
         start, end = report.last_week_window()
         md = report.render_markdown(report.build_report(conn, start, end))
-        print(f"[周报] 台账 {stats['total']} 笔（已平 {stats['closed']}），窗口 {start:%m-%d}~{end:%m-%d}", flush=True)
+        print(f"[周报] 台账 {stats['total']} 笔（已平 {stats['closed']}），窗口 {start:%m-%d}~{end:%m-%d}（北京）", flush=True)
         if settings.wecom_webhook:
             ok = WeComNotifier(settings.wecom_webhook).push_markdown(md, conn)
             print(f"  [推送] {'成功' if ok else '失败'}", flush=True)

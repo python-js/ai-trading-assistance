@@ -2,10 +2,17 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Space, Spin } from 'antd';
-import { UTCTimestamp, createChart } from 'lightweight-charts';
+import { UTCTimestamp, createChart, type Time } from 'lightweight-charts';
 import PoolSelect from '@/components/PoolSelect';
 import SignalTable from '@/components/SignalTable';
 import { Ohlcv, Signal, api } from '@/lib/api';
+
+/** 图表刻度/十字线时间 → 北京时间（UTC+8 固定偏移）。 */
+const fmtBjTick = (t: Time, withTime = true): string => {
+  if (typeof t !== 'number') return String(t);
+  const iso = new Date((t + 8 * 3600) * 1000).toISOString();
+  return withTime ? `${iso.slice(5, 10)} ${iso.slice(11, 16)}` : iso.slice(5, 10);
+};
 
 export default function ChartPage() {
   const [key, setKey] = useState<{ symbol: string; timeframe: string } | null>(null);
@@ -42,7 +49,12 @@ export default function ChartPage() {
       height: 460,
       layout: { background: { color: '#ffffff' }, textColor: '#333' },
       grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
-      timeScale: { timeVisible: true, secondsVisible: false },
+      localization: { timeFormatter: (t: Time) => fmtBjTick(t) },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (t: Time) => fmtBjTick(t, key?.timeframe !== '1d'),
+      },
     });
     const candles = chart.addCandlestickSeries({
       upColor: '#3f8600',

@@ -3,11 +3,14 @@
 约定：df 须先经 engine.indicators.enrich（含 ema20/ema60）；events 为
 [{ts, direction(entry/exit), price, price_zone_low?, price_zone_high?}]。
 只画尾部 bars 根；价格区间虚线仅画最后一个带区间的事件。
+时间轴显示北京时间（UTC+8）；事件 ts 匹配仍按库内 UTC。
 """
 import pathlib
 
 import mplfinance as mpf
 import pandas as pd
+
+from app.core.tz import CST
 
 # mplfinance 的 style 会重置字体，中文须经 make_mpf_style(rc=...) 注入
 _STYLE = mpf.make_mpf_style(base_mpf_style="yahoo", rc={
@@ -21,7 +24,7 @@ _UP, _DN = "#27ae60", "#c0392b"
 def render(df: pd.DataFrame, events: list[dict], out_path: str, *,
            bars: int = 120, title: str = "") -> str:
     win = df.tail(bars).reset_index(drop=True)
-    idx = pd.DatetimeIndex(win["ts"])
+    idx = pd.DatetimeIndex(win["ts"]).tz_convert(CST)
     ohlc = pd.DataFrame({"Open": win["open"].values, "High": win["high"].values,
                          "Low": win["low"].values, "Close": win["close"].values,
                          "Volume": win["volume"].values}, index=idx)

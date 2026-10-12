@@ -105,7 +105,13 @@ export async function addSymbol(symbol: string, timeframes: string[]): Promise<A
   return r.json();
 }
 
-export const fmtTs = (s: string | null): string => (s ? s.slice(0, 16).replace('T', ' ') : '-');
+/** ISO 时间 → 北京时间（UTC+8 固定偏移）'YYYY-MM-DD HH:MM'。 */
+export const fmtTs = (s: string | null): string => {
+  if (!s) return '-';
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return s.slice(0, 16).replace('T', ' ');
+  return new Date(t + 8 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ');
+};
 
 export const fmtPct = (x: number | null, digits = 2): string =>
   x == null ? '-' : `${(x * 100).toFixed(digits)}%`;
