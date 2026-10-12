@@ -121,6 +121,34 @@ def max_ohlcv_ts(conn, symbol: str, exchange: str, contract_type: str, timeframe
         return cur.fetchone()[0]
 
 
+# ---------- 标的池（P1-5 自助加币） ----------
+
+_SYMBOL_UPSERT = """
+INSERT INTO symbol (symbol, exchange, asset_class, contract_type, base, quote,
+                    exchange_symbol, is_active)
+VALUES (%s,%s,%s,%s,%s,%s,%s,TRUE)
+ON CONFLICT (exchange, symbol, contract_type)
+DO UPDATE SET is_active = TRUE, exchange_symbol = EXCLUDED.exchange_symbol
+"""
+
+
+def upsert_symbol(conn, *, symbol: str, exchange: str, asset_class: str,
+                  contract_type: str, base: str, quote: str, exchange_symbol: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(_SYMBOL_UPSERT, (symbol, exchange, asset_class, contract_type,
+                                     base, quote, exchange_symbol))
+    conn.commit()
+
+
+def load_active_symbols(conn) -> list[dict]:
+    q = """SELECT symbol, exchange, contract_type FROM symbol
+           WHERE is_active ORDER BY id"""
+    with conn.cursor() as cur:
+        cur.execute(q)
+        cols = [d.name for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
 # ---------- 规则（P0-6） ----------
 
 _RULE_UPSERT = """

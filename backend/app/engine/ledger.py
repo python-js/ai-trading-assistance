@@ -15,15 +15,45 @@ SLIP_BPS = 5.0     # 滑点单边 bps
 NOTIONAL = 1000.0  # 每笔名义本金 USDT
 
 
-def _load_px(conn, symbol: str, exchange: str, contract_type: str, timeframe: str) -> pd.DataFrame:
+class _Px:
+    """价格视图：TS 索引 + numpy 数组（避免逐笔 pandas 切片——rebuild 分钟级瓶颈即此）。"""
+
+    __slots__ = ("index", "low", "close")
+
+    def __init__(self, df: pd.DataFrame):
+        self.index = df.index
+        self.low = df["low"].to_numpy()
+        self.close = df["close"].to_numpy()
+
+    def close_at(self, ts) -> float:
+        pos = self.index.searchsorted(ts)
+        if pos >= len(self.index) or self.index[pos] != ts:
+            raise KeyError(f"ts 不在 K 线中: {ts}")
+        return float(self.close[pos])
+
+    def low_min(self, start, end) -> float:
+        a = self.index.searchsorted(start, side="left")
+        b = self.index.searchsorted(end, side="right")
+        return float(self.low[a:b].min())
+
+
+def _load_px(conn, symbol: str, exchange: str, contract_type: str, timeframe: str) -> _Px:
     df = db.load_ohlcv(conn, symbol, exchange, contract_type, timeframe)
-    return df.set_index("ts")[["low", "close"]]
+    return _Px(df.set_index("ts")[["low", "close"]])
 
 
-def _settle(entry: dict, exit_: dict | None, px: pd.DataFrame, *,
+def _get_px(conn, cache: dict, key: tuple) -> _Px:
+    """按标的口径惰性加载并缓存（OHLCV 只依赖 key 前 4 元，同标的/周期多规则共享）。"""
+    k4 = key[:4]
+    if k4 not in cache:
+        cache[k4] = _load_px(conn, *k4)
+    return cache[k4]
+
+
+def _settle(entry: dict, exit_: dict | None, px: _Px, *,
             fees: float, slip_bps: float, notional: float) -> dict:
     slip = slip_bps / 10_000
-    e_close = float(px.loc[entry["ts"], "close"])
+    e_close = px.close_at(entry["ts"])
     entry_eff = e_close * (1 + slip)
     qty = notional / entry_eff
     end_ts = exit_["ts"] if exit_ else px.index[-1]
@@ -31,12 +61,12 @@ def _settle(entry: dict, exit_: dict | None, px: pd.DataFrame, *,
         "signal_id": entry["id"], "symbol": entry["symbol"], "exchange": entry["exchange"],
         "contract_type": entry["contract_type"], "direction": "long",
         "entry_ts": entry["ts"], "entry_price": e_close, "qty": qty,
-        "max_adverse_excursion": float(px.loc[entry["ts"]:end_ts, "low"].min()) / entry_eff - 1,
+        "max_adverse_excursion": px.low_min(entry["ts"], end_ts) / entry_eff - 1,
     }
     if exit_ is None:
         row.update(status="open", exit_ts=None, exit_price=None, pnl=None, pnl_pct=None)
         return row
-    x_close = float(px.loc[exit_["ts"], "close"])
+    x_close = px.close_at(exit_["ts"])
     cost_in = notional * (1 + fees)
     proceeds = qty * x_close * (1 - slip) * (1 - fees)
     row.update(status="closed", exit_ts=exit_["ts"], exit_price=x_close,
@@ -48,18 +78,18 @@ def build_trades(conn, *, fees: float = FEES, slip_bps: float = SLIP_BPS,
                  notional: float = NOTIONAL) -> list[dict]:
     """从 signal 表重算全部配对（状态机语义：持仓中不重复入场、空仓不重复出场）。"""
     out: list[dict] = []
-    px_cache: dict[tuple, pd.DataFrame] = {}
+    px_cache: dict[tuple, _Px] = {}
     pending: dict[tuple, dict] = {}
     for s in db.load_all_signals(conn):
         key = (s["symbol"], s["exchange"], s["contract_type"], s["timeframe"], s["rule_id"])
         if s["direction"] == "entry":
             pending[key] = s
         elif key in pending:
-            px = px_cache.setdefault(key, _load_px(conn, *key[:4]))
+            px = _get_px(conn, px_cache, key)
             out.append(_settle(pending.pop(key), s, px,
                                fees=fees, slip_bps=slip_bps, notional=notional))
     for key, entry in pending.items():
-        px = px_cache.setdefault(key, _load_px(conn, *key[:4]))
+        px = _get_px(conn, px_cache, key)
         out.append(_settle(entry, None, px, fees=fees, slip_bps=slip_bps, notional=notional))
     out.sort(key=lambda r: r["entry_ts"])
     return out
@@ -85,12 +115,11 @@ def rebuild(conn, *, fees: float = FEES, slip_bps: float = SLIP_BPS,
     """全量重算并 upsert（幂等）；清理已不在回算集合中的陈旧行（含孤儿）。"""
     trades = build_trades(conn, fees=fees, slip_bps=slip_bps, notional=notional)
     with conn.cursor() as cur:
-        for t in trades:
-            cur.execute(_UPSERT, (t["signal_id"], t["symbol"], t["exchange"],
-                                  t["contract_type"], t["direction"], t["entry_ts"],
-                                  t["entry_price"], t["qty"], t["status"], t["exit_ts"],
-                                  t["exit_price"], t["pnl"], t["pnl_pct"],
-                                  t["max_adverse_excursion"]))
+        cur.executemany(_UPSERT, [
+            (t["signal_id"], t["symbol"], t["exchange"], t["contract_type"],
+             t["direction"], t["entry_ts"], t["entry_price"], t["qty"], t["status"],
+             t["exit_ts"], t["exit_price"], t["pnl"], t["pnl_pct"],
+             t["max_adverse_excursion"]) for t in trades])
         cur.execute("""DELETE FROM paper_position
                        WHERE signal_id IS NULL OR signal_id <> ALL(%s)""",
                     ([t["signal_id"] for t in trades],))

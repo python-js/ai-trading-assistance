@@ -1,18 +1,22 @@
 """P1-4 看板 REST API：台账报表 / 持仓 / 信号历史 / K线 / 自选池 / 标注回流。
+P1-5：标的搜索与自助加币（ccxt load_markets 实时搜索，入池+绑规则+回填+回放+台账重建）。
 
-只读为主（标注除外）；连接为每请求短连接；K线含 ema20/ema60 与研究同源买卖点标记。
+只读为主（标注/加币除外）；连接为每请求短连接；K线含 ema20/ema60 与研究同源买卖点标记。
 """
 from __future__ import annotations
 
 import math
+import threading
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from app.adapters.market.ccxt_okx import OKXAdapter
 from app.core.config import settings
-from app.engine import report
+from app.engine import ledger, report, replay
 from app.engine.indicators import enrich
+from app.engine.scanner import HISTORY_MIN_BARS, ensure_rules
 from app.models import db
 
 router = APIRouter(prefix="/api")
@@ -142,6 +146,75 @@ def get_symbols(conn=Depends(get_conn)):
         pool.setdefault(r["symbol"], []).append(
             {"timeframe": r["timeframe"], "n_rules": r["n_rules"], "last_ts": r["last_ts"]})
     return [{"symbol": k, "periods": v} for k, v in pool.items()]
+
+
+# ---------- 自助加币（P1-5） ----------
+
+ALLOWED_TFS = ("1m", "1h", "4h")
+
+_adapter_lock = threading.Lock()
+_adapter_cache: dict = {}
+
+
+def _adapter() -> OKXAdapter:
+    """OKXAdapter 懒加载单例（load_markets 昂贵，搜索/加币复用）。"""
+    with _adapter_lock:
+        if "okx" not in _adapter_cache:
+            _adapter_cache["okx"] = OKXAdapter(settings.okx_proxy)
+        return _adapter_cache["okx"]
+
+
+@router.get("/symbols/search")
+def search_symbols(q: str = Query(..., min_length=1, max_length=20), conn=Depends(get_conn)):
+    ad = _adapter()
+    ql = q.strip().upper()
+    hits = [s for s, m in ad.ex.markets.items()
+            if m.get("spot") and m.get("quote") == "USDT" and ql in s.upper()]
+    hits.sort(key=lambda s: (not s.startswith(ql + "/"), s))
+    in_pool = set(settings.symbols) | {r["symbol"] for r in db.load_active_symbols(conn)}
+    return [{"symbol": s, "in_pool": s in in_pool} for s in hits[:20]]
+
+
+class SymbolIn(BaseModel):
+    symbol: str
+    timeframes: list[str] = ["1h", "4h"]
+
+
+@router.post("/symbols", status_code=201)
+def add_symbol(body: SymbolIn, conn=Depends(get_conn)):
+    """入 symbol 表 → 绑默认规则 → 回填 K 线 → 历史信号回放 → 台账重建（全部幂等）。
+
+    扫描器每 tick 重读规则与池，≤1 个周期自动纳入（无需重启）。
+    """
+    sym = body.symbol.strip().upper()
+    tfs = tuple(dict.fromkeys(t for t in body.timeframes if t in ALLOWED_TFS))
+    if not tfs:
+        raise HTTPException(422, "timeframes 非空且 ∈ 1m/1h/4h")
+    ad = _adapter()
+    m = ad.ex.markets.get(sym)
+    if not (m and m.get("spot")):
+        raise HTTPException(404, f"OKX 现货市场不存在: {sym}")
+    db.upsert_symbol(conn, symbol=sym, exchange="okx", asset_class="crypto",
+                     contract_type="spot", base=m["base"], quote=m["quote"],
+                     exchange_symbol=sym)
+    ensure_rules(conn, sym, tfs)
+    bars = 0
+    for tf in tfs:
+        n, _, _ = db.count_ohlcv(conn, sym, "okx", "spot", tf)
+        if n >= HISTORY_MIN_BARS:
+            continue
+        tf_ms = ad.ex.parse_timeframe(tf) * 1000
+        need_days = max(1, (HISTORY_MIN_BARS + 20) * tf_ms // 86_400_000 + 1)
+        since = ad.server_time() - need_days * 86400 * 1000
+        rows = ad.fetch_ohlcv(sym, tf, since=since, paginate=True)
+        if rows:
+            db.upsert_ohlcv(conn, rows, {"symbol": sym, "exchange": "okx",
+                                         "contract_type": "spot", "timeframe": tf})
+            bars += len(rows)
+    signals = replay.backfill(conn, symbol=sym)
+    stats = ledger.rebuild(conn)
+    return {"symbol": sym, "timeframes": list(tfs), "bars": bars, "signals": signals,
+            "ledger": {"total": stats["total"], "closed": stats["closed"]}}
 
 
 class AnnotationIn(BaseModel):

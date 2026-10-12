@@ -52,6 +52,16 @@ export type SymbolPool = {
   periods: { timeframe: string; n_rules: number; last_ts: string }[];
 };
 
+export type SymbolSearchHit = { symbol: string; in_pool: boolean };
+
+export type AddSymbolResult = {
+  symbol: string;
+  timeframes: string[];
+  bars: number;
+  signals: number;
+  ledger: { total: number; closed: number };
+};
+
 export type Ohlcv = {
   bars: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
   ema20: { time: number; value: number }[];
@@ -72,6 +82,27 @@ export async function postAnnotation(signalId: number, userAction: string): Prom
     body: JSON.stringify({ signal_id: signalId, user_action: userAction }),
   });
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+}
+
+export const searchSymbols = (q: string): Promise<SymbolSearchHit[]> =>
+  api<SymbolSearchHit[]>(`/api/symbols/search?q=${encodeURIComponent(q)}`);
+
+export async function addSymbol(symbol: string, timeframes: string[]): Promise<AddSymbolResult> {
+  const r = await fetch('/api/symbols', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol, timeframes }),
+  });
+  if (!r.ok) {
+    let msg = `${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      // 保持状态码
+    }
+    throw new Error(msg);
+  }
+  return r.json();
 }
 
 export const fmtTs = (s: string | null): string => (s ? s.slice(0, 16).replace('T', ' ') : '-');

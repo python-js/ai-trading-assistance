@@ -47,8 +47,14 @@ def trigger_for(tf: str) -> CronTrigger:
     }[tf]
 
 
-def scan_tfs(symbol: str, tfs: tuple[str, ...]) -> tuple[str, ...]:
-    return tfs if symbol in CORE else tuple(t for t in tfs if t != "1m")
+def scan_tfs(symbol: str, tfs: tuple[str, ...], core=None) -> tuple[str, ...]:
+    core = CORE if core is None else core
+    return tfs if symbol in core else tuple(t for t in tfs if t != "1m")
+
+
+def core_from_rules(rules: list[dict]) -> set[str]:
+    """1m 采集资格 = 拥有 1m 规则的标的（seed 覆盖配置核心池；自助加币选 1m 自动获得）。"""
+    return {r["symbol"] for r in rules if r["timeframe"] == "1m"} or set(CORE)
 
 
 # ---------- 自选池与历史准备 ----------
@@ -63,6 +69,13 @@ def build_pool(adapter: OKXAdapter) -> list[str]:
             top, _ = [], print(f"[警告] 市值TOP获取失败，仅用配置自选池: {e}")
         pool += [s for s in top if s not in pool]
     return pool
+
+
+def active_pool(conn, startup_pool: list[str]) -> list[str]:
+    """启动池（配置+市值TOP）∪ symbol 表自助加币（去重保序，每 tick 调用）。"""
+    extra = [r["symbol"] for r in db.load_active_symbols(conn)
+             if r["exchange"] == "okx" and r["contract_type"] == "spot"]
+    return list(dict.fromkeys(startup_pool + extra))
 
 
 def ensure_history(adapter: OKXAdapter, conn, pool: list[str], cts: tuple[str, ...],
@@ -94,25 +107,36 @@ def _dsl(name: str, symbol: str, tf: str, entry: dict, exit_: dict, cooldown: in
             "exit": exit_, "cooldown_bars": cooldown}
 
 
-def seed_rules(conn, pool: list[str], core: tuple[str, ...] = CORE) -> None:
-    """4h 主信号 + 1h 组合（RSI 过滤 + chandelier 出场）覆盖全池；1m 仅核心池。"""
+def rule_name(sym: str, tf: str) -> str:
+    return f"ema_2060_{'rsi_' if tf == '1h' else ''}{tf}_{sym}"
+
+
+def rule_templates(tfs: tuple[str, ...]) -> list[tuple[str, dict, dict, int]]:
+    """(tf, entry, exit, cooldown) 模板：4h 裸交叉 / 1h RSI 过滤+chandelier / 1m 裸交叉。"""
     cross = {"cross_up": ["ema20", "ema60"]}
     cross_dn = {"cross_down": ["ema20", "ema60"]}
-    combo_entry = {"all": [cross, {"rsi14": {"<": 70}}]}
-    combo_exit = {"any": [cross_dn, {"chandelier_exit": {"atr_mult": 3}}]}
-    for sym in pool:
-        for tf, entry, exit_, cd in (
-                ("4h", cross, cross_dn, 2),
-                ("1h", combo_entry, combo_exit, 6)):
-            name = f"ema_2060_{'rsi_' if tf == '1h' else ''}{tf}_{sym}"
-            db.upsert_rule(conn, name=name, symbol=sym, exchange="okx", contract_type="spot",
-                           timeframe=tf, dsl=_dsl(name, sym, tf, entry, exit_, cd),
-                           cooldown_bars=cd)
-    for sym in core:
-        name = f"ema_2060_1m_{sym}"
+    tpl = {"4h": (cross, cross_dn, 2),
+           "1h": ({"all": [cross, {"rsi14": {"<": 70}}]},
+                  {"any": [cross_dn, {"chandelier_exit": {"atr_mult": 3}}]}, 6),
+           "1m": (cross, cross_dn, 30)}
+    return [(tf, *tpl[tf]) for tf in tfs]
+
+
+def ensure_rules(conn, sym: str, tfs: tuple[str, ...]) -> None:
+    """按模板为标的 upsert 规则（幂等；seed 与自助加币共用）。"""
+    for tf, entry, exit_, cd in rule_templates(tfs):
+        name = rule_name(sym, tf)
         db.upsert_rule(conn, name=name, symbol=sym, exchange="okx", contract_type="spot",
-                       timeframe="1m", dsl=_dsl(name, sym, "1m", cross, cross_dn, 30),
-                       cooldown_bars=30)
+                       timeframe=tf, dsl=_dsl(name, sym, tf, entry, exit_, cd),
+                       cooldown_bars=cd)
+
+
+def seed_rules(conn, pool: list[str], core: tuple[str, ...] = CORE) -> None:
+    """4h 主信号 + 1h 组合（RSI 过滤 + chandelier 出场）覆盖全池；1m 仅核心池。"""
+    for sym in pool:
+        ensure_rules(conn, sym, ("4h", "1h"))
+    for sym in core:
+        ensure_rules(conn, sym, ("1m",))
 
 
 def load_rules(conn) -> list[dict]:
@@ -128,12 +152,13 @@ def scan(adapter: OKXAdapter, conn, rules: list[dict], pool: list[str],
          cts: tuple[str, ...], tfs: tuple[str, ...]) -> list[dict]:
     """各 tf：增量采集已收盘 bar；刚收盘 bar 为新 bar 时评估匹配规则并落库信号。"""
     now = adapter.server_time()
+    core = core_from_rules(rules)
     fired: list[dict] = []
     for tf in tfs:
         tf_ms = adapter.ex.parse_timeframe(tf) * 1000
         trigger = last_closed_ms(now, tf_ms)
         for internal in pool:
-            if tf not in scan_tfs(internal, tfs):
+            if tf not in scan_tfs(internal, tfs, core):
                 continue
             for ct in cts:
                 sym = adapter.to_ccxt_symbol(internal, ct)
@@ -188,12 +213,12 @@ def _evaluate_trigger(conn, adapter: OKXAdapter, rules: list[dict], internal: st
 # ---------- 心跳 ----------
 
 def heartbeat(adapter: OKXAdapter, conn, pool: list[str], cts: tuple[str, ...],
-              tfs: tuple[str, ...]) -> None:
+              tfs: tuple[str, ...], core=None) -> None:
     now = adapter.server_time()
     stale = []
     for internal in pool:
         for ct in cts:
-            for tf in scan_tfs(internal, tfs):
+            for tf in scan_tfs(internal, tfs, core):
                 hi = db.max_ohlcv_ts(conn, internal, adapter.exchange, ct, tf)
                 if hi is None:
                     stale.append(f"{internal}/{ct}/{tf}:无数据")
@@ -207,11 +232,13 @@ def heartbeat(adapter: OKXAdapter, conn, pool: list[str], cts: tuple[str, ...],
 
 # ---------- 入口 ----------
 
-def _scan_with_conn(adapter: OKXAdapter, rules: list[dict], pool: list[str],
+def _scan_with_conn(adapter: OKXAdapter, startup_pool: list[str],
                     cts: tuple[str, ...], tf: str) -> list[dict]:
-    """定时任务用短连接（避免长事务/断线粘连）。"""
+    """定时任务用短连接（避免长事务/断线粘连）；每 tick 重读规则与池（自助加币 ≤1 周期生效）。"""
     conn = db.connect(settings.pg_dsn)
     try:
+        rules = load_rules(conn)
+        pool = active_pool(conn, startup_pool)
         return scan(adapter, conn, rules, pool, cts, (tf,))
     finally:
         conn.close()
@@ -220,7 +247,7 @@ def _scan_with_conn(adapter: OKXAdapter, rules: list[dict], pool: list[str],
 def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
     adapter = OKXAdapter(settings.okx_proxy)
     conn = db.connect(settings.pg_dsn)
-    pool = build_pool(adapter)
+    pool = active_pool(conn, build_pool(adapter))  # 并入 symbol 表自助加币（重启自愈回填）
     cts, tfs = settings.contract_types, settings.timeframes
     print(f"自选池({len(pool)}): {pool} | ct={cts} | tf={tfs}")
     ensure_history(adapter, conn, pool, cts, tfs)
@@ -230,7 +257,7 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
 
     def job(tf: str) -> None:
         t0 = time.time()
-        fired = _scan_with_conn(adapter, rules, pool, cts, tf)
+        fired = _scan_with_conn(adapter, pool, cts, tf)
         print(f"[{datetime.now(timezone.utc):%m-%d %H:%M:%S}] {tf:3} 扫描 {time.time() - t0:.1f}s "
               f"新信号 {len(fired)}", flush=True)
         for s in fired:
@@ -242,7 +269,8 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
     def hb() -> None:
         conn = db.connect(settings.pg_dsn)
         try:
-            heartbeat(adapter, conn, pool, cts, tfs)
+            heartbeat(adapter, conn, active_pool(conn, pool), cts, tfs,
+                      core_from_rules(load_rules(conn)))
         finally:
             conn.close()
 
