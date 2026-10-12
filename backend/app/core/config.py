@@ -22,6 +22,11 @@ class Settings:
     backfill_days: int
     pool_top_n: int
     wecom_webhook: str
+    llm_api_key: str
+    llm_base_url: str
+    llm_model_extract: tuple[str, ...]
+    llm_model_explain: tuple[str, ...]
+    llm_model_vision: tuple[str, ...]
 
 
 def load() -> Settings:
@@ -40,6 +45,11 @@ def load() -> Settings:
         backfill_days=int(os.getenv("BACKFILL_DAYS", "30")),
         pool_top_n=int(os.getenv("POOL_TOP_N", "5")),
         wecom_webhook=os.getenv("WECOM_WEBHOOK", ""),
+        llm_api_key=os.getenv("LLM_API_KEY", ""),
+        llm_base_url=os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        llm_model_extract=_csv("LLM_MODEL_EXTRACT", "qwen-plus"),
+        llm_model_explain=_csv("LLM_MODEL_EXPLAIN", "qwen-plus"),
+        llm_model_vision=_csv("LLM_MODEL_VISION", "qwen-vl-max"),
     )
 
 
