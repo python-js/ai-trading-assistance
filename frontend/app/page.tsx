@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, Col, Row, Segmented, Spin, Statistic, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { Position, Report, ReportStats, api, fmtPct, fmtPf, fmtTs, pnlColor } from '@/lib/api';
+import { Position, Report, ReportStats, api, fmtPct, fmtPf, fmtPrice, fmtTs, pnlColor } from '@/lib/api';
 
 const statCols: ColumnsType<[string, ReportStats]> = [
   { title: '分组', render: (r) => r[0] },
@@ -125,7 +125,7 @@ export default function LedgerPage() {
             { title: '标的', dataIndex: 'symbol', width: 110 },
             { title: '周期', dataIndex: 'timeframe', width: 70 },
             { title: '入场', dataIndex: 'entry_ts', render: fmtTs, width: 140 },
-            { title: '入场价', dataIndex: 'entry_price', render: (x: number) => x.toFixed(2) },
+            { title: '入场价', dataIndex: 'entry_price', render: (x: number, r: Position) => fmtPrice(x, r.symbol) },
             { title: '出场', dataIndex: 'exit_ts', render: fmtTs, width: 140 },
             {
               title: '盈亏',

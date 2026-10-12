@@ -5,7 +5,7 @@ import { Card, Space, Spin } from 'antd';
 import { UTCTimestamp, createChart, type Time } from 'lightweight-charts';
 import PoolSelect from '@/components/PoolSelect';
 import SignalTable from '@/components/SignalTable';
-import { Ohlcv, Signal, api } from '@/lib/api';
+import { Ohlcv, Signal, api, priceDecimals } from '@/lib/api';
 
 /** 图表刻度/十字线时间 → 北京时间（UTC+8 固定偏移）。 */
 const fmtBjTick = (t: Time, withTime = true): string => {
@@ -45,6 +45,8 @@ export default function ChartPage() {
   useEffect(() => {
     const el = elRef.current;
     if (!data || !el) return;
+    const dec = priceDecimals(data.bars[data.bars.length - 1]?.close ?? 0, key?.symbol);
+    const priceFormat = { type: 'price' as const, precision: dec, minMove: 10 ** -dec };
     const chart = createChart(el, {
       height: 460,
       layout: { background: { color: '#ffffff' }, textColor: '#333' },
@@ -62,6 +64,7 @@ export default function ChartPage() {
       wickUpColor: '#3f8600',
       wickDownColor: '#cf1322',
       borderVisible: false,
+      priceFormat,
     });
     candles.setData(
       data.bars.map((b) => ({
@@ -72,9 +75,19 @@ export default function ChartPage() {
         close: b.close,
       }))
     );
-    const ema20 = chart.addLineSeries({ color: '#f5a623', lineWidth: 1, priceLineVisible: false });
+    const ema20 = chart.addLineSeries({
+      color: '#f5a623',
+      lineWidth: 1,
+      priceLineVisible: false,
+      priceFormat,
+    });
     ema20.setData(data.ema20.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-    const ema60 = chart.addLineSeries({ color: '#2f80ed', lineWidth: 1, priceLineVisible: false });
+    const ema60 = chart.addLineSeries({
+      color: '#2f80ed',
+      lineWidth: 1,
+      priceLineVisible: false,
+      priceFormat,
+    });
     ema60.setData(data.ema60.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
     candles.setMarkers(
       [...data.signals]
@@ -109,6 +122,30 @@ export default function ChartPage() {
   return (
     <Spin spinning={loading}>
       <Card title="K线" extra={<PoolSelect onChange={(symbol, timeframe) => setKey({ symbol, timeframe })} />}>
+        <div style={{ marginBottom: 6, fontSize: 12, color: '#666' }}>
+          <span
+            style={{
+              display: 'inline-block',
+              width: 20,
+              height: 3,
+              background: '#f5a623',
+              verticalAlign: 'middle',
+              marginRight: 4,
+            }}
+          />
+          EMA20
+          <span
+            style={{
+              display: 'inline-block',
+              width: 20,
+              height: 3,
+              background: '#2f80ed',
+              verticalAlign: 'middle',
+              margin: '0 4px 0 20px',
+            }}
+          />
+          EMA60
+        </div>
         <div ref={elRef} style={{ width: '100%' }} />
       </Card>
       <Card title="本标的最近信号（可标注）" size="small" style={{ marginTop: 16 }}>

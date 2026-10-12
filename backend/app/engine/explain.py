@@ -10,6 +10,7 @@ import json
 import re
 
 from app.adapters.llm import gateway
+from app.core.fmt import fmt_price
 from app.core.tz import to_bj
 
 MAX_LEN = 200
@@ -27,7 +28,7 @@ _LABELS = (("tech", "技术票"), ("flow", "资金面票"), ("info", "信息票"
 def _context(s: dict) -> str:
     lines = [f"标的：{s['symbol']}（{s['contract_type']}）  周期：{s['timeframe']}",
              f"信号：{'买入' if s['direction'] == 'entry' else '卖出'}  "
-             f"价格 {s['price']:.6g}（区间 {s['price_zone_low']:.6g}~{s['price_zone_high']:.6g}）",
+             f"价格 {fmt_price(s['price'], s['exchange'])}（区间 {fmt_price(s['price_zone_low'], s['exchange'])}~{fmt_price(s['price_zone_high'], s['exchange'])}）",
              f"规则：{s['rule']}  时间：{to_bj(s['ts']):%Y-%m-%d %H:%M} 北京时间"]
     v = s.get("votes") or {}
     for k, label in _LABELS:

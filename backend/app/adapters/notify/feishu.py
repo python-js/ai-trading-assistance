@@ -13,6 +13,7 @@ import time
 
 import requests
 
+from app.core.fmt import fmt_price
 from app.core.tz import to_bj
 from app.models import db
 
@@ -22,7 +23,7 @@ _STANCE_CN = {"agree": "赞同", "oppose": "反对", "neutral": "中性"}
 def render_signal_lark(s: dict) -> str:
     """信号卡片正文（lark_md；飞书无 "> " 引用语法，改用加粗标签）。"""
     lines = [f"**规则**：{s['rule']}",
-             f"**价格**：{s['price']:.6g}（区间 {s['price_zone_low']:.6g} ~ {s['price_zone_high']:.6g}）",
+             f"**价格**：{fmt_price(s['price'], s['exchange'])}（区间 {fmt_price(s['price_zone_low'], s['exchange'])} ~ {fmt_price(s['price_zone_high'], s['exchange'])}）",
              f"**时间**：{to_bj(s['ts']):%Y-%m-%d %H:%M} 北京时间 · {s['contract_type']}"]
     v = s.get("votes") or {}
     if v:

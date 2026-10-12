@@ -4,12 +4,17 @@
 [{ts, direction(entry/exit), price, price_zone_low?, price_zone_high?}]。
 只画尾部 bars 根；价格区间虚线仅画最后一个带区间的事件。
 时间轴显示北京时间（UTC+8）；事件 ts 匹配仍按库内 UTC。
+标题附第二行线色说明（黄=EMA20/蓝=EMA60）；价格轴小数位按 exchange 自适应
+（虚拟币≥4 位、A 股 2 位，见 core.fmt）。
 """
 import pathlib
 
 import mplfinance as mpf
 import pandas as pd
+from matplotlib import pyplot as plt
+from matplotlib.ticker import FuncFormatter
 
+from app.core.fmt import price_decimals
 from app.core.tz import CST
 
 # mplfinance 的 style 会重置字体，中文须经 make_mpf_style(rc=...) 注入
@@ -22,7 +27,7 @@ _UP, _DN = "#27ae60", "#c0392b"
 
 
 def render(df: pd.DataFrame, events: list[dict], out_path: str, *,
-           bars: int = 120, title: str = "") -> str:
+           bars: int = 120, title: str = "", exchange: str = "") -> str:
     win = df.tail(bars).reset_index(drop=True)
     idx = pd.DatetimeIndex(win["ts"]).tz_convert(CST)
     ohlc = pd.DataFrame({"Open": win["open"].values, "High": win["high"].values,
@@ -60,6 +65,12 @@ def render(df: pd.DataFrame, events: list[dict], out_path: str, *,
             apds.append(mpf.make_addplot(z, color=c, width=0.7, linestyle="--"))
 
     pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    mpf.plot(ohlc, type="candle", style=_STYLE, addplot=apds, volume=True, figsize=(12, 7),
-             title=title, savefig=dict(fname=out_path, dpi=80, bbox_inches="tight"))
+    dec = price_decimals(float(win["close"].iloc[-1]), exchange)
+    fig, _ = mpf.plot(ohlc, type="candle", style=_STYLE, addplot=apds, volume=True, figsize=(12, 7),
+                      title=f"{title}\n黄线=EMA20 · 蓝线=EMA60", returnfig=True)
+    for ax in fig.axes:  # 价格轴按币种小数位（twinx 轴 ylabel 为空，仅命中主价格轴）
+        if ax.get_ylabel().startswith("Price"):
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:.{dec}f}"))
+    fig.savefig(out_path, dpi=80, bbox_inches="tight")
+    plt.close(fig)
     return out_path

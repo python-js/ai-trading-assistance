@@ -14,6 +14,7 @@ import re
 
 from app.adapters.chart.mplfinance_chart import render
 from app.adapters.llm import gateway
+from app.core.fmt import fmt_price
 from app.core.tz import to_bj
 from app.engine.indicators import enrich
 from app.models import db
@@ -36,7 +37,8 @@ def render_chart(conn, s: dict) -> str | None:
                            s["timeframe"], limit=600)
         ind = enrich(df)
         return render(ind, [s], f"{CHART_DIR}/signal_{s['signal_id']}.png",
-                      title=f"{s['symbol']} {s['timeframe']} {s['rule']}")
+                      title=f"{s['symbol']} {s['timeframe']} {s['rule']}",
+                      exchange=s["exchange"])
     except Exception as e:
         print(f"[读图] 截图渲染失败: {type(e).__name__}: {e}", flush=True)
         return None
@@ -47,8 +49,8 @@ def run(s: dict, img_path: str) -> tuple[float, dict] | None:
     try:
         b64 = base64.b64encode(pathlib.Path(img_path).read_bytes()).decode()
         d = "买入" if s["direction"] == "entry" else "卖出"
-        ctx = (f"信号：{d} {s['symbol']} {s['timeframe']}，价格 {s['price']:.6g}"
-               f"（区间 {s['price_zone_low']:.6g}~{s['price_zone_high']:.6g}），"
+        ctx = (f"信号：{d} {s['symbol']} {s['timeframe']}，价格 {fmt_price(s['price'], s['exchange'])}"
+               f"（区间 {fmt_price(s['price_zone_low'], s['exchange'])}~{fmt_price(s['price_zone_high'], s['exchange'])}），"
                f"规则 {s['rule']}，时间 {to_bj(s['ts']):%Y-%m-%d %H:%M} 北京时间")
         r = gateway.complete("vision", [
             {"role": "system", "content": _SYSTEM},

@@ -13,6 +13,7 @@ import time
 import requests
 
 from app.adapters.chart.mplfinance_chart import render
+from app.core.fmt import fmt_price
 from app.core.tz import to_bj
 from app.engine.indicators import enrich
 from app.models import db
@@ -25,7 +26,7 @@ def render_signal_md(s: dict) -> str:
     d = "买入" if s["direction"] == "entry" else "卖出"
     lines = [f"### {d}信号 {s['symbol']} {s['timeframe']}",
              f"> 规则：{s['rule']}",
-             f"> 价格：{s['price']:.6g}（区间 {s['price_zone_low']:.6g} ~ {s['price_zone_high']:.6g}）",
+             f"> 价格：{fmt_price(s['price'], s['exchange'])}（区间 {fmt_price(s['price_zone_low'], s['exchange'])} ~ {fmt_price(s['price_zone_high'], s['exchange'])}）",
              f"> 时间：{to_bj(s['ts']):%Y-%m-%d %H:%M} 北京时间 · {s['contract_type']}"]
     vl = _votes_line(s)
     if vl:
@@ -102,7 +103,8 @@ class WeComNotifier:
                                    s["timeframe"], limit=600)
                 ind = enrich(df)
                 img_path = render(ind, [s], f"{CHART_DIR}/signal_{s['signal_id']}.png",
-                                  title=f"{s['symbol']} {s['timeframe']} {s['rule']}")
+                                  title=f"{s['symbol']} {s['timeframe']} {s['rule']}",
+                                  exchange=s["exchange"])
             except Exception as e:  # 图表失败不阻断文本推送
                 err = f"chart: {e}"
         try:

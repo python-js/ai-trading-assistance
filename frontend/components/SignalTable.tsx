@@ -3,11 +3,9 @@
 import { useState } from 'react';
 import { Button, Input, Modal, Space, Table, Tag, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { Signal, fmtTs, postAnnotation } from '@/lib/api';
+import { Signal, fmtPrice, fmtTs, postAnnotation } from '@/lib/api';
 
 const ACTIONS = ['采纳', '忽略', '看错'] as const;
-
-const fmtPrice = (x: number) => (x >= 1 ? x.toFixed(2) : Number(x).toPrecision(4));
 
 export default function SignalTable({
   signals,
@@ -53,7 +51,7 @@ export default function SignalTable({
     {
       title: '价格区间',
       width: 150,
-      render: (_, s) => `${fmtPrice(s.price_zone_low)} ~ ${fmtPrice(s.price_zone_high)}`,
+      render: (_, s) => `${fmtPrice(s.price_zone_low, s.symbol)} ~ ${fmtPrice(s.price_zone_high, s.symbol)}`,
     },
     {
       title: '推送',

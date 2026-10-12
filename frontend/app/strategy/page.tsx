@@ -42,11 +42,11 @@ const DSL_STYLE: React.CSSProperties = {
   overflow: 'auto',
 };
 
-const tradeCols: ColumnsType<BacktestTrade> = [
+const tradeCols = (symbol?: string): ColumnsType<BacktestTrade> => [
   { title: '入场时间', dataIndex: 'entry_ts', render: fmtTs, width: 140 },
   { title: '出场时间', dataIndex: 'exit_ts', render: fmtTs, width: 140 },
-  { title: '入场价', dataIndex: 'entry_price', render: fmtPrice, width: 100 },
-  { title: '出场价', dataIndex: 'exit_price', render: fmtPrice, width: 100 },
+  { title: '入场价', dataIndex: 'entry_price', render: (v: number) => fmtPrice(v, symbol), width: 100 },
+  { title: '出场价', dataIndex: 'exit_price', render: (v: number) => fmtPrice(v, symbol), width: 100 },
   {
     title: '盈亏',
     dataIndex: 'pnl',
@@ -290,7 +290,7 @@ export default function StrategyPage() {
                   <Table
                     rowKey={(t) => `${t.entry_ts}|${t.exit_ts}`}
                     size="small"
-                    columns={tradeCols}
+                    columns={tradeCols(bt.row.symbol)}
                     dataSource={bt.data.trades}
                     pagination={{ pageSize: 8, showSizeChanger: false }}
                     locale={{ emptyText: '区间内无交易' }}

@@ -241,8 +241,16 @@ export const fmtPct = (x: number | null, digits = 2): string =>
 
 export const fmtPf = (x: number | null): string => (x == null ? '-' : x.toFixed(2));
 
-/** 价格显示：≥1 保留两位小数，否则 4 位有效数字（与信号表一致）。 */
-export const fmtPrice = (x: number): string => (x >= 1 ? x.toFixed(2) : Number(x).toPrecision(4));
+/** 价格小数位：虚拟币 ≥4 位、按量级自适应（至多 8 位）；A 股（symbol 无 '/'）固定 2 位。 */
+export const priceDecimals = (x: number, symbol?: string): number => {
+  if (symbol && !symbol.includes('/')) return 2;
+  if (!Number.isFinite(x) || x <= 0) return 4;
+  return Math.min(8, Math.max(4, 3 - Math.floor(Math.log10(x))));
+};
+
+/** 价格显示：按币种自适应小数位（虚拟币最少 4 位）；非法值返回 '-'。 */
+export const fmtPrice = (x: number, symbol?: string): string =>
+  Number.isFinite(x) ? x.toFixed(priceDecimals(x, symbol)) : '-';
 
 /** 盈亏配色（国际惯例：绿涨红跌）。 */
 export const pnlColor = (x: number | null): string =>
