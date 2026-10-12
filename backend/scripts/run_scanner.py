@@ -11,7 +11,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))  # backend/
 from app.adapters.notify.feishu import FeishuNotifier
 from app.adapters.notify.wecom import WeComNotifier
 from app.core.config import settings
-from app.engine import chart_vote, explain, ledger, report
+from app.engine import chart_vote, explain, ledger, rag, report
 from app.engine.scanner import main
 from app.models import db
 
@@ -20,9 +20,10 @@ def _hook(s: dict) -> None:
     if not settings.wecom_webhook and not settings.feishu_webhook:
         print("  [推送] 未配置 WECOM_WEBHOOK/FEISHU_WEBHOOK，跳过")
         return
-    s["reason"] = explain.build_reason(s)  # LLM 不可用/违禁时 None（降级纯信号推送）
     conn = db.connect(settings.pg_dsn)
     try:
+        s["knowledge"] = rag.recall(conn, s)  # A5：失败静默 []，不阻塞推送
+        s["reason"] = explain.build_reason(s)  # LLM 不可用/违禁时 None（降级纯信号推送）
         img = chart_vote.render_chart(conn, s)  # 推送与读图票共用同一张截图
         if img:
             cv = chart_vote.run(s, img)

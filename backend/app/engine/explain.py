@@ -16,7 +16,7 @@ MAX_LEN = 200
 _BANNED = re.compile(r"保证|必涨|必跌|稳赚|包赚|无风险|一定会|100%|百分百|必定|梭哈|重仓")
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$")
 
-_SYSTEM = ("你是交易研究助理。基于给定信号与三票数据写一段 ≤200 字的中文研判理由："
+_SYSTEM = ("你是交易研究助理。基于给定信号、三票数据与本人历史研判参考写一段 ≤200 字的中文研判理由："
            "说明信号逻辑、三票佐证与主要风险。仅输出 JSON：{\"reason\":\"…\"}，无其他文字。"
            "禁止确定性价格承诺、收益保证与诱导性表述（如'保证/必涨/稳赚'）；"
            "不确定处用'偏/可能'等措辞。")
@@ -38,6 +38,9 @@ def _context(s: dict) -> str:
             lines.append(f"{label}：缺席（{ev.get('skip', '无数据')}）")
         else:
             lines.append(f"{label}：{strength:.2f}（{_ev_brief(k, ev)}）")
+    kn = s.get("knowledge")
+    if kn:
+        lines.append("本人历史研判参考：\n" + "\n".join(f"- {t}" for t in kn))
     return "\n".join(lines)
 
 

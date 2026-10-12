@@ -12,11 +12,12 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from app.adapters.llm import gateway
 from app.adapters.market.ccxt_okx import OKXAdapter
 from app.core.config import settings
-from app.engine import ledger, report, replay
+from app.engine import ledger, rag, report, replay
 from app.engine.indicators import enrich
-from app.engine.scanner import HISTORY_MIN_BARS, ensure_rules
+from app.engine.scanner import HISTORY_MIN_BARS, ensure_rules, last_closed_ms
 from app.models import db
 
 router = APIRouter(prefix="/api")
@@ -211,8 +212,10 @@ def add_symbol(body: SymbolIn, conn=Depends(get_conn)):
             continue
         tf_ms = ad.ex.parse_timeframe(tf) * 1000
         need_days = max(1, (HISTORY_MIN_BARS + 20) * tf_ms // 86_400_000 + 1)
-        since = ad.server_time() - need_days * 86400 * 1000
+        now_ms = ad.server_time()
+        since = now_ms - need_days * 86400 * 1000
         rows = ad.fetch_ohlcv(sym, tf, since=since, paginate=True)
+        rows = [r for r in rows if r[0] <= last_closed_ms(now_ms, tf_ms)]
         if rows:
             db.upsert_ohlcv(conn, rows, {"symbol": sym, "exchange": "okx",
                                          "contract_type": "spot", "timeframe": tf})
@@ -234,14 +237,26 @@ def add_annotation(body: AnnotationIn, conn=Depends(get_conn)):
     if body.user_action not in ACTIONS:
         raise HTTPException(422, f"user_action ∈ {'/'.join(ACTIONS)}")
     with conn.cursor() as cur:
-        cur.execute("SELECT 1 FROM signal WHERE id = %s", (body.signal_id,))
-        if not cur.fetchone():
+        cur.execute("""SELECT s.symbol, s.timeframe, s.direction, r.name
+                       FROM signal s LEFT JOIN rule r ON r.id = s.rule_id
+                       WHERE s.id = %s""", (body.signal_id,))
+        sig = cur.fetchone()
+        if not sig:
             raise HTTPException(404, f"signal 不存在: {body.signal_id}")
         cur.execute("""INSERT INTO annotation (signal_id, user_action, note)
                        VALUES (%s, %s, %s) RETURNING id""",
                     (body.signal_id, body.user_action, body.note))
         aid = cur.fetchone()[0]
     conn.commit()
+    # A5：笔记非空 → 向量化入知识库（失败只告警，不阻塞标注）
+    if body.note and body.note.strip():
+        try:
+            text = (f"[{sig[0]} {sig[1]} {'买入' if sig[2] == 'entry' else '卖出'}] "
+                    f"标注「{body.user_action}」：{body.note.strip()}")
+            rag.add_chunk(conn, text, source_type="note",
+                          meta={"signal_id": body.signal_id, "action": body.user_action})
+        except Exception as e:
+            print(f"[知识] 标注笔记入库跳过（{type(e).__name__}: {str(e)[:60]}）", flush=True)
     return {"id": aid}
 
 
@@ -250,3 +265,35 @@ def get_annotations(signal_id: int, conn=Depends(get_conn)):
     return _rows(conn, """SELECT id, signal_id, user_action, note, created_ts
                           FROM annotation WHERE signal_id = %s ORDER BY id DESC""",
                  [signal_id])
+
+
+# ---------- A5 个人研判知识库（P3） ----------
+
+class KnowledgeIn(BaseModel):
+    text: str
+
+
+@router.post("/knowledge", status_code=201)
+def add_knowledge(body: KnowledgeIn, conn=Depends(get_conn)):
+    """手动知识条目 → 向量化入库。"""
+    text = body.text.strip()
+    if not text or len(text) > 2000:
+        raise HTTPException(422, "text 非空且 ≤2000 字")
+    try:
+        kid = rag.add_chunk(conn, text, source_type="manual")
+    except gateway.LlmError as e:
+        raise HTTPException(503, f"向量化失败（LLM 不可用）：{e}")
+    return {"id": kid}
+
+
+@router.get("/knowledge")
+def get_knowledge(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0),
+                  conn=Depends(get_conn)):
+    return db.list_knowledge(conn, limit=limit, offset=offset)
+
+
+@router.delete("/knowledge/{kid}")
+def remove_knowledge(kid: int, conn=Depends(get_conn)):
+    if not db.delete_knowledge(conn, kid):
+        raise HTTPException(404, f"知识不存在: {kid}")
+    return {"ok": True}

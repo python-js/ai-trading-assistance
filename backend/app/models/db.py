@@ -302,3 +302,50 @@ def insert_signal_vote(conn, *, signal_id: int, vote_type: str,
                        VALUES (%s,%s,%s,%s)""",
                     (signal_id, vote_type, strength, Jsonb(evidence)))
     conn.commit()
+
+
+# ---------- A5 知识库 RAG（P3） ----------
+
+def _vec(embedding: list[float]) -> str:
+    return "[" + ",".join(f"{x:.7g}" for x in embedding) + "]"
+
+
+def insert_knowledge(conn, *, source_type: str, text: str,
+                     embedding: list[float], meta: dict) -> int:
+    with conn.cursor() as cur:
+        cur.execute("""INSERT INTO knowledge_chunk (source_type, text, embedding, meta_json)
+                       VALUES (%s, %s, %s::vector, %s) RETURNING id""",
+                    (source_type, text, _vec(embedding), Jsonb(meta)))
+        kid = cur.fetchone()[0]
+    conn.commit()
+    return kid
+
+
+def list_knowledge(conn, limit: int = 100, offset: int = 0) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute("""SELECT id, source_type, text, meta_json, created_ts
+                       FROM knowledge_chunk ORDER BY id DESC LIMIT %s OFFSET %s""",
+                    (limit, offset))
+        rows = cur.fetchall()
+    return [{"id": r[0], "source_type": r[1], "text": r[2], "meta": r[3],
+             "created_ts": r[4].isoformat()} for r in rows]
+
+
+def delete_knowledge(conn, kid: int) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM knowledge_chunk WHERE id = %s", (kid,))
+        n = cur.rowcount
+    conn.commit()
+    return n > 0
+
+
+def search_knowledge(conn, embedding: list[float], limit: int = 3) -> list[dict]:
+    """余弦距离 Top-N 召回（embedding 列无维度约束，pgvector 顺序扫描）。"""
+    with conn.cursor() as cur:
+        cur.execute("""SELECT id, source_type, text, meta_json, embedding <=> %s::vector AS dist
+                       FROM knowledge_chunk WHERE embedding IS NOT NULL
+                       ORDER BY dist LIMIT %s""",
+                    (_vec(embedding), limit))
+        rows = cur.fetchall()
+    return [{"id": r[0], "source_type": r[1], "text": r[2], "meta": r[3],
+             "dist": float(r[4])} for r in rows]

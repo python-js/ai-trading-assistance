@@ -99,8 +99,10 @@ def ensure_history(adapter: OKXAdapter, conn, pool: list[str], cts: tuple[str, .
                     continue
                 tf_ms = adapter.ex.parse_timeframe(tf) * 1000
                 need_days = max(1, (HISTORY_MIN_BARS + 20) * tf_ms // 86_400_000 + 1)
-                since = adapter.server_time() - need_days * 86400 * 1000
+                now_ms = adapter.server_time()
+                since = now_ms - need_days * 86400 * 1000
                 rows = adapter.fetch_ohlcv(sym, tf, since=since, paginate=True)
+                rows = [r for r in rows if r[0] <= last_closed_ms(now_ms, tf_ms)]
                 if rows:
                     db.upsert_ohlcv(conn, rows, {"symbol": internal, "exchange": adapter.exchange,
                                                  "contract_type": ct, "timeframe": tf})

@@ -10,6 +10,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))  # backend/
 
 from app.adapters.market.ccxt_okx import OKXAdapter
 from app.core.config import settings
+from app.engine.scanner import last_closed_ms
 from app.models import db
 
 
@@ -37,6 +38,7 @@ def main() -> None:
                 continue
             for tf in tfs:
                 rows = adapter.fetch_ohlcv(sym, tf, since=since, paginate=True)
+                rows = [r for r in rows if r[0] <= last_closed_ms(now, tf_ms[tf])]
                 if not rows:
                     print(f"  [空] {sym} {tf}")
                     continue

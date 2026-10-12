@@ -17,7 +17,16 @@ class OKXAdapter:
         if proxy:
             cfg["proxies"] = {"http": proxy, "https": proxy}
         self.ex = ccxt.okx(cfg)
-        self.ex.load_markets()
+        # 仅加载现货+永续：期权市场量大且偶发超时，曾致启动时 load_markets 崩溃
+        self.ex.options["fetchMarkets"] = ["spot", "swap"]
+        for i in range(3):
+            try:
+                self.ex.load_markets()
+                break
+            except (ccxt.NetworkError, ccxt.ExchangeNotAvailable, ccxt.RequestTimeout):
+                if i == 2:
+                    raise
+                time.sleep(5 * (2 ** i))
 
     def to_ccxt_symbol(self, internal: str, contract_type: str) -> str:
         """内部 base/quote → ccxt 串。spot: BTC/USDT；perp: BTC/USDT:USDT。"""

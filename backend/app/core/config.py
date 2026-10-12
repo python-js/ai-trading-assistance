@@ -29,6 +29,7 @@ class Settings:
     llm_model_extract: tuple[str, ...]
     llm_model_explain: tuple[str, ...]
     llm_model_vision: tuple[str, ...]
+    llm_model_embed: tuple[str, ...]
 
 
 def load() -> Settings:
@@ -54,6 +55,7 @@ def load() -> Settings:
         llm_model_extract=_csv("LLM_MODEL_EXTRACT", "qwen-plus"),
         llm_model_explain=_csv("LLM_MODEL_EXPLAIN", "qwen-plus"),
         llm_model_vision=_csv("LLM_MODEL_VISION", "qwen-vl-max"),
+        llm_model_embed=_csv("LLM_MODEL_EMBED", "text-embedding-v4,text-embedding-v3"),
     )
 
 
