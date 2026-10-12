@@ -283,3 +283,22 @@ def insert_news_events(conn, news_id: int, events: list[dict], model: str) -> No
     with conn.cursor() as cur:
         cur.executemany(_NEWS_EVENT_INSERT, params)
     conn.commit()
+
+
+# ---------- 三票合议（P2-4 S7） ----------
+
+def update_signal_scores(conn, signal_id: int, *, tech, flow, info, total) -> None:
+    with conn.cursor() as cur:
+        cur.execute("""UPDATE signal SET tech_score=%s, flow_score=%s, info_score=%s,
+                       total_score=%s WHERE id=%s""",
+                    (tech, flow, info, total, signal_id))
+    conn.commit()
+
+
+def insert_signal_vote(conn, *, signal_id: int, vote_type: str,
+                       strength: float | None, evidence: dict) -> None:
+    with conn.cursor() as cur:
+        cur.execute("""INSERT INTO signal_vote (signal_id, vote_type, strength, evidence_json)
+                       VALUES (%s,%s,%s,%s)""",
+                    (signal_id, vote_type, strength, Jsonb(evidence)))
+    conn.commit()

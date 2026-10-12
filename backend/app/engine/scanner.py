@@ -21,7 +21,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from app.adapters.market.akshare_cn import AkshareAdapter
 from app.adapters.market.ccxt_okx import OKXAdapter
 from app.core.config import settings
-from app.engine import flow, news, replay
+from app.engine import flow, news, replay, votes
 from app.engine.indicators import enrich
 from app.engine.rules_dsl import WARMUP_BARS, evaluate, parse_rule
 from app.models import db
@@ -217,11 +217,15 @@ def _evaluate_daily(conn, adapter: AkshareAdapter, rules: list[dict], internal: 
                 contract_type="stock", timeframe=STOCK_TF, ts=e.ts, direction=e.direction,
                 price_zone_low=e.price - 0.5 * a, price_zone_high=e.price + 0.5 * a)
             if sid:
-                out.append({"signal_id": sid, "rule": r["name"], "symbol": internal,
-                            "exchange": adapter.exchange, "contract_type": "stock",
-                            "timeframe": STOCK_TF, "ts": e.ts, "direction": e.direction,
-                            "price": e.price, "price_zone_low": e.price - 0.5 * a,
-                            "price_zone_high": e.price + 0.5 * a, "atr": a})
+                sig = {"signal_id": sid, "rule": r["name"], "symbol": internal,
+                       "exchange": adapter.exchange, "contract_type": "stock",
+                       "timeframe": STOCK_TF, "ts": e.ts, "direction": e.direction,
+                       "price": e.price, "price_zone_low": e.price - 0.5 * a,
+                       "price_zone_high": e.price + 0.5 * a, "atr": a}
+                vres = votes.compute(conn, sig, ind)
+                votes.save(conn, sid, vres)
+                sig["votes"] = vres
+                out.append(sig)
     return out
 
 
@@ -316,12 +320,16 @@ def _evaluate_trigger(conn, adapter: OKXAdapter, rules: list[dict], internal: st
                 contract_type=ct, timeframe=tf, ts=trigger, direction=e.direction,
                 price_zone_low=e.price - 0.5 * atr, price_zone_high=e.price + 0.5 * atr)
             if sid:
-                out.append({"signal_id": sid, "rule": r["name"], "symbol": internal,
-                            "exchange": adapter.exchange,
-                            "contract_type": ct, "timeframe": tf, "ts": trigger,
-                            "direction": e.direction, "price": e.price,
-                            "price_zone_low": e.price - 0.5 * atr,
-                            "price_zone_high": e.price + 0.5 * atr, "atr": atr})
+                sig = {"signal_id": sid, "rule": r["name"], "symbol": internal,
+                       "exchange": adapter.exchange,
+                       "contract_type": ct, "timeframe": tf, "ts": trigger,
+                       "direction": e.direction, "price": e.price,
+                       "price_zone_low": e.price - 0.5 * atr,
+                       "price_zone_high": e.price + 0.5 * atr, "atr": atr}
+                vres = votes.compute(conn, sig, ind)
+                votes.save(conn, sid, vres)
+                sig["votes"] = vres
+                out.append(sig)
     return out
 
 
