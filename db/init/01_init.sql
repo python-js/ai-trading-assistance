@@ -185,6 +185,8 @@ CREATE TABLE IF NOT EXISTS paper_position (
   pnl_pct               DOUBLE PRECISION,
   max_adverse_excursion DOUBLE PRECISION
 );
+-- P1-1 台账幂等键：一笔仓位对应一个入场信号
+CREATE UNIQUE INDEX IF NOT EXISTS uq_paper_position_signal ON paper_position (signal_id);
 
 CREATE TABLE IF NOT EXISTS push_log (
   id         BIGSERIAL PRIMARY KEY,

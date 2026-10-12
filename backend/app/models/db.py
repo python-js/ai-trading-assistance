@@ -174,6 +174,16 @@ def insert_signal_if_new(conn, *, rule_id: int, symbol: str, exchange: str,
     return row[0] if row else None
 
 
+def load_all_signals(conn) -> list[dict]:
+    """全量信号（P1-1 台账配对/报表用），按规则 + bar 时间升序。"""
+    q = """SELECT id, rule_id, symbol, exchange, contract_type, timeframe, ts, direction
+           FROM signal ORDER BY rule_id, symbol, exchange, contract_type, timeframe, ts, id"""
+    with conn.cursor() as cur:
+        cur.execute(q)
+        cols = [d.name for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
 # ---------- 推送日志（P0-8） ----------
 
 _PUSH_LOG_INSERT = """
