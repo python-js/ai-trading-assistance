@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,7 +16,7 @@ from pydantic import BaseModel
 from app.adapters.llm import gateway
 from app.adapters.market.ccxt_okx import OKXAdapter
 from app.core.config import settings
-from app.engine import ledger, rag, report, replay
+from app.engine import backtest_event, ledger, rag, report, replay, rule_gen
 from app.engine.indicators import enrich
 from app.engine.scanner import HISTORY_MIN_BARS, ensure_rules, last_closed_ms
 from app.models import db
@@ -297,3 +298,77 @@ def remove_knowledge(kid: int, conn=Depends(get_conn)):
     if not db.delete_knowledge(conn, kid):
         raise HTTPException(404, f"知识不存在: {kid}")
     return {"ok": True}
+
+
+# ---------- A3 自然语言→规则草稿 / 规则管理 / 沙箱回测（P3） ----------
+
+class RuleDraftIn(BaseModel):
+    text: str
+    symbol: str
+    timeframe: str
+
+
+@router.post("/rules/draft", status_code=201)
+def create_rule_draft(body: RuleDraftIn, conn=Depends(get_conn)):
+    """中文想法 → LLM 生成 DSL（校验+回喂重试）→ 草稿入库（enabled=false，人审=开关）。"""
+    text = body.text.strip()
+    if not text or len(text) > 500:
+        raise HTTPException(422, "text 非空且 ≤500 字")
+    meta = _rows(conn, """SELECT exchange, contract_type FROM ohlcv
+                          WHERE symbol=%s AND timeframe=%s LIMIT 1""",
+                 [body.symbol, body.timeframe])
+    if not meta:
+        raise HTTPException(404, f"无数据: {body.symbol} {body.timeframe}")
+    try:
+        gen = rule_gen.generate(text, body.symbol, body.timeframe)
+    except rule_gen.RuleGenError as e:
+        raise HTTPException(422, f"生成未通过校验（已重试一次）：{e}")
+    except gateway.LlmError as e:
+        raise HTTPException(503, f"LLM 不可用：{e}")
+    name = f"gen_{body.symbol}_{body.timeframe}_{int(time.time() * 1000)}"
+    dsl = {"name": name, "symbol": body.symbol, "timeframe": body.timeframe, **gen}
+    rid = db.insert_draft_rule(conn, name=name, symbol=body.symbol,
+                               exchange=meta[0]["exchange"],
+                               contract_type=meta[0]["contract_type"],
+                               timeframe=body.timeframe, dsl=dsl,
+                               cooldown_bars=gen["cooldown_bars"])
+    return {"id": rid, "name": name, "dsl": dsl}
+
+
+@router.get("/rules")
+def get_rules(limit: int = Query(200, ge=1, le=500), conn=Depends(get_conn)):
+    return db.list_rules(conn, limit=limit)
+
+
+class RuleToggleIn(BaseModel):
+    enabled: bool
+
+
+@router.post("/rules/{rid}/toggle")
+def toggle_rule(rid: int, body: RuleToggleIn, conn=Depends(get_conn)):
+    if not db.set_rule_enabled(conn, rid, body.enabled):
+        raise HTTPException(404, f"规则不存在: {rid}")
+    return {"id": rid, "enabled": body.enabled}
+
+
+@router.post("/rules/{rid}/backtest")
+def backtest_rule(rid: int, days: int = Query(120, ge=5, le=730), conn=Depends(get_conn)):
+    """沙箱回测（同步：台账口径事件驱动，默认最近 120 天；只算不写）。"""
+    r = db.get_rule(conn, rid)
+    if not r:
+        raise HTTPException(404, f"规则不存在: {rid}")
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+    try:
+        res = backtest_event.run_rule(conn, r, start=start, end=end)
+    except ValueError as e:
+        raise HTTPException(422, f"回测不可执行：{e}")
+    trades = [{**t, "entry_ts": t["entry_ts"].isoformat(),
+               "exit_ts": t["exit_ts"].isoformat()} for t in res["trades"]]
+    open_pos = ({**res["open_pos"],
+                 "entry_ts": res["open_pos"]["entry_ts"].isoformat()}
+                if res["open_pos"] else None)
+    return _json_safe({"id": rid, "name": r["name"], "symbol": r["symbol"],
+                       "timeframe": r["timeframe"], "days": days,
+                       "metrics": res["metrics"], "n_events": res["n_events"],
+                       "trades": trades, "open_pos": open_pos})

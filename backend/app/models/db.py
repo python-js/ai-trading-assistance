@@ -178,6 +178,52 @@ def load_enabled_rules(conn) -> list[dict]:
         return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
+# ---------- A3 规则管理（P3：草稿/启停/沙箱） ----------
+
+def insert_draft_rule(conn, *, name: str, symbol: str, exchange: str, contract_type: str,
+                      timeframe: str, dsl: dict, cooldown_bars: int = 0) -> int:
+    """生成草稿入库（enabled=FALSE；与 upsert_rule 的种子语义分离）。"""
+    with conn.cursor() as cur:
+        cur.execute("""INSERT INTO rule (name, symbol, exchange, contract_type, timeframe,
+                                         dsl_json, cooldown_bars, enabled, version)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,FALSE,1) RETURNING id""",
+                    (name, symbol, exchange, contract_type, timeframe,
+                     Jsonb(dsl), cooldown_bars))
+        rid = cur.fetchone()[0]
+    conn.commit()
+    return rid
+
+
+def list_rules(conn, limit: int = 200) -> list[dict]:
+    q = """SELECT id, name, symbol, exchange, contract_type, timeframe, dsl_json,
+                  cooldown_bars, enabled, version, created_ts
+           FROM rule ORDER BY id DESC LIMIT %s"""
+    with conn.cursor() as cur:
+        cur.execute(q, (limit,))
+        cols = [d.name for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def get_rule(conn, rid: int) -> dict | None:
+    q = """SELECT id, name, symbol, exchange, contract_type, timeframe, dsl_json,
+                  cooldown_bars, enabled FROM rule WHERE id = %s"""
+    with conn.cursor() as cur:
+        cur.execute(q, (rid,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        cols = [d.name for d in cur.description]
+        return dict(zip(cols, row))
+
+
+def set_rule_enabled(conn, rid: int, enabled: bool) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("UPDATE rule SET enabled=%s WHERE id=%s", (enabled, rid))
+        ok = cur.rowcount > 0
+    conn.commit()
+    return ok
+
+
 # ---------- 信号（P0-6，唯一索引去重：重启安全） ----------
 
 _SIGNAL_INSERT = """
