@@ -1,0 +1,107 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { Card, Space, Spin } from 'antd';
+import { UTCTimestamp, createChart } from 'lightweight-charts';
+import PoolSelect from '@/components/PoolSelect';
+import SignalTable from '@/components/SignalTable';
+import { Ohlcv, Signal, api } from '@/lib/api';
+
+export default function ChartPage() {
+  const [key, setKey] = useState<{ symbol: string; timeframe: string } | null>(null);
+  const [data, setData] = useState<Ohlcv | null>(null);
+  const [signals, setSignals] = useState<Signal[]>([]);
+  const [loading, setLoading] = useState(false);
+  const elRef = useRef<HTMLDivElement>(null);
+
+  const load = (k: { symbol: string; timeframe: string }) => {
+    setLoading(true);
+    Promise.all([
+      api<Ohlcv>(
+        `/api/ohlcv?symbol=${encodeURIComponent(k.symbol)}&timeframe=${k.timeframe}&limit=300`
+      ),
+      api<Signal[]>(
+        `/api/signals?symbol=${encodeURIComponent(k.symbol)}&timeframe=${k.timeframe}&limit=50`
+      ),
+    ])
+      .then(([d, s]) => {
+        setData(d);
+        setSignals(s);
+      })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (key) load(key);
+  }, [key]);
+
+  useEffect(() => {
+    const el = elRef.current;
+    if (!data || !el) return;
+    const chart = createChart(el, {
+      height: 460,
+      layout: { background: { color: '#ffffff' }, textColor: '#333' },
+      grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
+      timeScale: { timeVisible: true, secondsVisible: false },
+    });
+    const candles = chart.addCandlestickSeries({
+      upColor: '#3f8600',
+      downColor: '#cf1322',
+      wickUpColor: '#3f8600',
+      wickDownColor: '#cf1322',
+      borderVisible: false,
+    });
+    candles.setData(
+      data.bars.map((b) => ({
+        time: b.time as UTCTimestamp,
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+      }))
+    );
+    const ema20 = chart.addLineSeries({ color: '#f5a623', lineWidth: 1, priceLineVisible: false });
+    ema20.setData(data.ema20.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    const ema60 = chart.addLineSeries({ color: '#2f80ed', lineWidth: 1, priceLineVisible: false });
+    ema60.setData(data.ema60.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    candles.setMarkers(
+      [...data.signals]
+        .sort((a, b) => a.time - b.time)
+        .map((s) =>
+          s.direction === 'entry'
+            ? {
+                time: s.time as UTCTimestamp,
+                position: 'belowBar' as const,
+                color: '#3f8600',
+                shape: 'arrowUp' as const,
+                text: '买',
+              }
+            : {
+                time: s.time as UTCTimestamp,
+                position: 'aboveBar' as const,
+                color: '#cf1322',
+                shape: 'arrowDown' as const,
+                text: '卖',
+              }
+        )
+    );
+    chart.timeScale().fitContent();
+    const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      chart.remove();
+    };
+  }, [data]);
+
+  return (
+    <Spin spinning={loading}>
+      <Card title="K线" extra={<PoolSelect onChange={(symbol, timeframe) => setKey({ symbol, timeframe })} />}>
+        <div ref={elRef} style={{ width: '100%' }} />
+      </Card>
+      <Card title="本标的最近信号（可标注）" size="small" style={{ marginTop: 16 }}>
+        <SignalTable signals={signals} onChanged={() => key && load(key)} />
+      </Card>
+    </Spin>
+  );
+}
