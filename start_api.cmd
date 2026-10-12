@@ -1,7 +1,8 @@
 @echo off
 chcp 65001 >nul
-rem H5 看板后端（FastAPI）：给前端 next dev/prod 提供 /api/*；关闭本窗口即停止。
-rem 日志见 data\logs\api.log；前端见 frontend/（npm run dev，端口 3000）。
+rem H5 dashboard backend (FastAPI) for the frontend; log: data\logs\api.log
+rem Frontend runs separately: cd frontend && npm run dev (port 3000). Close this window to stop.
+rem NOTE: keep this file ASCII-only - cmd.exe misparses UTF-8 text after chcp.
 cd /d %~dp0
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
