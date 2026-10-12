@@ -9,6 +9,7 @@ const ITEMS = [
   { key: '/chart', label: 'K线' },
   { key: '/symbols', label: '自选池' },
   { key: '/knowledge', label: '知识库' },
+  { key: '/strategy', label: '策略' },
 ];
 
 export default function TopNav() {

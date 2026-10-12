@@ -121,6 +121,92 @@ export async function deleteKnowledge(id: number): Promise<void> {
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
 }
 
+export type RuleRow = {
+  id: number;
+  name: string;
+  symbol: string;
+  timeframe: string;
+  enabled: boolean;
+  version: number;
+  created_ts: string;
+  dsl_json: Record<string, unknown>;
+};
+
+export type RuleDraft = { id: number; name: string; dsl: Record<string, unknown> };
+
+export type BacktestTrade = {
+  entry_ts: string;
+  exit_ts: string;
+  entry_price: number;
+  exit_price: number;
+  pnl: number;
+  pnl_pct: number;
+  hold_bars: number;
+  mae: number;
+};
+
+export type BacktestResult = {
+  id: number;
+  name: string;
+  symbol: string;
+  timeframe: string;
+  days: number;
+  metrics: {
+    n_trades: number;
+    win_rate: number | null;
+    pf: number | null;
+    avg_pnl_pct: number | null;
+    total_pnl: number;
+    'return_on_init[%]': number;
+    'max_drawdown[%]': number;
+    'exposure[%]': number;
+    avg_hold_bars: number | null;
+    fees_total: number;
+  };
+  n_events: number;
+  trades: BacktestTrade[];
+  open_pos: { entry_ts: string; entry_price: number; unrealized: number } | null;
+};
+
+export const fetchRules = (): Promise<RuleRow[]> => api<RuleRow[]>('/api/rules?limit=500');
+
+export async function createRuleDraft(
+  text: string,
+  symbol: string,
+  timeframe: string
+): Promise<RuleDraft> {
+  const r = await fetch('/api/rules/draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, symbol, timeframe }),
+  });
+  if (!r.ok) {
+    let msg = `${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      // 保持状态码
+    }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+export async function toggleRule(id: number, enabled: boolean): Promise<void> {
+  const r = await fetch(`/api/rules/${id}/toggle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+}
+
+export async function runBacktest(id: number, days: number): Promise<BacktestResult> {
+  const r = await fetch(`/api/rules/${id}/backtest?days=${days}`, { method: 'POST' });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
 export const searchSymbols = (q: string): Promise<SymbolSearchHit[]> =>
   api<SymbolSearchHit[]>(`/api/symbols/search?q=${encodeURIComponent(q)}`);
 
@@ -154,6 +240,9 @@ export const fmtPct = (x: number | null, digits = 2): string =>
   x == null ? '-' : `${(x * 100).toFixed(digits)}%`;
 
 export const fmtPf = (x: number | null): string => (x == null ? '-' : x.toFixed(2));
+
+/** 价格显示：≥1 保留两位小数，否则 4 位有效数字（与信号表一致）。 */
+export const fmtPrice = (x: number): string => (x >= 1 ? x.toFixed(2) : Number(x).toPrecision(4));
 
 /** 盈亏配色（国际惯例：绿涨红跌）。 */
 export const pnlColor = (x: number | null): string =>
