@@ -101,7 +101,8 @@ CREATE TABLE IF NOT EXISTS news_raw (
   content           TEXT,
   published_ts      TIMESTAMPTZ,
   fetched_ts        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  raw_snapshot_path TEXT
+  raw_snapshot_path TEXT,
+  processed_ts      TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS news_event (

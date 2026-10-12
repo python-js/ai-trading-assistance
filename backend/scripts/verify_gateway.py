@@ -58,7 +58,8 @@ def main() -> None:
     p_set, p_llm = _patch(fake_ok)
     with p_set, p_llm:
         out = gateway.complete("extract", MSGS)
-    check("返回第二模型内容", out == "ok-B", repr(out))
+    check("返回第二模型内容", out.text == "ok-B", repr(out.text))
+    check("模型归因=回退后实际模型", out.model == "model-b", out.model)
     seq = [c["model"] for c in calls]
     check("调用序列 openai/A→openai/B", seq == ["openai/model-a", "openai/model-b"], str(seq))
     check("api_key/api_base 透传",
@@ -129,8 +130,8 @@ def main() -> None:
         try:
             out = gateway.complete("extract", [{"role": "user",
                                                 "content": "只回复两个字：测试"}], timeout=60)
-            check("真实调用返回非空", bool(out and out.strip()),
-                  (out or "").strip()[:40])
+            check("真实调用返回非空", bool(out.text and out.text.strip()),
+                  f"{out.model}: {out.text.strip()[:40]}")
         except gateway.LlmError as e:
             check("真实调用返回非空", False, str(e)[:120])
 

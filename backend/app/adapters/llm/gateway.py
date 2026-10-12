@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import time
+from typing import NamedTuple
 
 # 跳过远端价格表拉取（GitHub raw 不可达环境下会重试阻塞启动）；本地备份足够
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
@@ -25,6 +26,11 @@ class LlmError(RuntimeError):
     pass
 
 
+class LlmResult(NamedTuple):
+    text: str
+    model: str  # 实际成功的模型（含回退后的），供落库溯源
+
+
 def models_for(task: str) -> tuple[str, ...]:
     return {"extract": settings.llm_model_extract,
             "explain": settings.llm_model_explain,
@@ -32,8 +38,8 @@ def models_for(task: str) -> tuple[str, ...]:
 
 
 def complete(task: str, messages: list[dict], *, json_mode: bool = False,
-             timeout: float = 60.0, **kw) -> str:
-    """按任务选模 + 回退链调用；返回首个成功响应文本。全链失败抛 LlmError。"""
+             timeout: float = 60.0, **kw) -> LlmResult:
+    """按任务选模 + 回退链调用；返回首个成功响应。全链失败抛 LlmError。"""
     if not settings.llm_api_key:
         raise LlmError("LLM_API_KEY 未配置（.env）")
     last: Exception | None = None
@@ -48,7 +54,7 @@ def complete(task: str, messages: list[dict], *, json_mode: bool = False,
             usage = getattr(r, "usage", None)
             print(f"[LLM] {task} {model} {time.time() - t0:.1f}s"
                   f"{f' tokens={usage.total_tokens}' if usage else ''}", flush=True)
-            return r.choices[0].message.content
+            return LlmResult(r.choices[0].message.content, model)
         except Exception as e:
             print(f"[LLM] {task} {model} 失败({type(e).__name__})，尝试下一个", flush=True)
             last = e

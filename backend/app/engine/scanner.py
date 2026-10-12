@@ -21,7 +21,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from app.adapters.market.akshare_cn import AkshareAdapter
 from app.adapters.market.ccxt_okx import OKXAdapter
 from app.core.config import settings
-from app.engine import flow, replay
+from app.engine import flow, news, replay
 from app.engine.indicators import enrich
 from app.engine.rules_dsl import WARMUP_BARS, evaluate, parse_rule
 from app.models import db
@@ -423,6 +423,23 @@ def _flow_with_conn(adapter: OKXAdapter, startup_pool: list[str]) -> None:
         conn.close()
 
 
+# ---------- 资讯采集 + 结构化（P2-3 A1：10 分钟增量；LLM 未配置则仅采集） ----------
+
+NEWS_INTERVAL_MIN = 10
+
+
+def _news_with_conn() -> None:
+    conn = db.connect(settings.pg_dsn)
+    try:
+        news.collect(conn, proxy=settings.okx_proxy or None)
+        if settings.llm_api_key:
+            news.extract_pending(conn)
+        else:
+            print("[资讯] 未配置 LLM_API_KEY，跳过结构化（仅采集）", flush=True)
+    finally:
+        conn.close()
+
+
 def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
     adapter = OKXAdapter(settings.okx_proxy)
     stock_adapter = AkshareAdapter()
@@ -480,6 +497,7 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
             job(tf)
         job_stock()
         _flow_with_conn(adapter, pool)
+        _news_with_conn()
         conn.close()
         return
 
@@ -494,6 +512,8 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
         sched.add_job(lambda: _flow_with_conn(adapter, pool),
                       IntervalTrigger(minutes=FLOW_INTERVAL_MIN),
                       id="flow_collect", max_instances=1, coalesce=True)
+    sched.add_job(_news_with_conn, IntervalTrigger(minutes=NEWS_INTERVAL_MIN),
+                  id="news_collect", max_instances=1, coalesce=True)
     sched.add_job(hb, IntervalTrigger(seconds=60), id="heartbeat", max_instances=1)
     if on_weekly:
         sched.add_job(on_weekly, CronTrigger(day_of_week="mon", hour=1, minute=0),

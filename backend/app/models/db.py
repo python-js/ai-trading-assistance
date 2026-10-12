@@ -225,3 +225,61 @@ def insert_push_log(conn, *, signal_id: int | None, channel: str, status: str,
     with conn.cursor() as cur:
         cur.execute(_PUSH_LOG_INSERT, (signal_id, channel, status, message_id, error))
     conn.commit()
+
+
+# ---------- 资讯（P2-3 A1 信息挖掘） ----------
+
+_NEWS_RAW_INSERT = """
+INSERT INTO news_raw (source, url, title, content, published_ts)
+VALUES (%s,%s,%s,%s,%s)
+ON CONFLICT (url) DO NOTHING
+RETURNING id
+"""
+
+_NEWS_EVENT_INSERT = """
+INSERT INTO news_event (news_id, symbols, event_type, sentiment, impact_dir,
+                        magnitude, extracted_by_model, confidence)
+VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+"""
+
+
+def insert_news_raw_if_new(conn, *, source: str, url: str, title: str,
+                           content: str, published_ts) -> int | None:
+    """按 url 去重；新条目返回 id，已存在返回 None。"""
+    with conn.cursor() as cur:
+        cur.execute(_NEWS_RAW_INSERT, (source, url, title, content, published_ts))
+        row = cur.fetchone()
+    conn.commit()
+    return row[0] if row else None
+
+
+def load_unextracted_news(conn, limit: int, sources: tuple[str, ...] | None = None) -> list[dict]:
+    """待结构化条目（PIT：published_ts 非空且 ≤ now），新→旧；sources 可限定来源（验证隔离）。"""
+    q = """SELECT id, source, title, content, url, published_ts FROM news_raw
+           WHERE processed_ts IS NULL AND published_ts IS NOT NULL AND published_ts <= now()"""
+    params: list = []
+    if sources:
+        q += " AND source = ANY(%s)"
+        params.append(list(sources))
+    q += " ORDER BY published_ts DESC LIMIT %s"
+    params.append(limit)
+    with conn.cursor() as cur:
+        cur.execute(q, params)
+        cols = [d.name for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def mark_news_processed(conn, news_id: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute("UPDATE news_raw SET processed_ts = now() WHERE id = %s", (news_id,))
+    conn.commit()
+
+
+def insert_news_events(conn, news_id: int, events: list[dict], model: str) -> None:
+    if not events:
+        return
+    params = [(news_id, e["symbols"], e["event_type"], e["sentiment"], e["impact_dir"],
+               e["magnitude"], model, e["confidence"]) for e in events]
+    with conn.cursor() as cur:
+        cur.executemany(_NEWS_EVENT_INSERT, params)
+    conn.commit()
