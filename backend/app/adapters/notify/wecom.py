@@ -123,13 +123,15 @@ class WeComNotifier:
                            status="sent", error=err)
         return True
 
-    def push_markdown(self, md: str, conn) -> bool:
-        """纯 markdown 消息（周报等非信号推送）；push_log 记 signal_id=NULL。"""
+    def push_markdown(self, md: str, conn=None) -> bool:
+        """纯 markdown 消息（周报/告警等）；conn 为空时跳过 push_log（看门狗不依赖 DB）。"""
         try:
             self._post({"msgtype": "markdown", "markdown": {"content": md}})
         except Exception as e:
-            db.insert_push_log(conn, signal_id=None, channel=self.channel,
-                               status="failed", error=f"md: {e}")
+            if conn:
+                db.insert_push_log(conn, signal_id=None, channel=self.channel,
+                                   status="failed", error=f"md: {e}")
             return False
-        db.insert_push_log(conn, signal_id=None, channel=self.channel, status="sent")
+        if conn:
+            db.insert_push_log(conn, signal_id=None, channel=self.channel, status="sent")
         return True

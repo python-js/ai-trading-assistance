@@ -6,7 +6,7 @@
   signal 表唯一索引去重（重启安全，不重复推送）。
 - 自选池：SYMBOLS + 市值 TOP N（fetch_tickers 按 quoteVolume，启动时计算）；
   1m 数据与规则仅核心池（= 配置的 SYMBOLS；市值 TOP 扩展仅 1h/4h），避免高请求量与推送噪音。
-- 监控：心跳日志（数据新鲜度 / 停更告警）。
+- 监控：心跳日志 + 停更/恢复推送告警（on_alert 钩子；状态迁移触发、发送失败下轮重试）。
 """
 from __future__ import annotations
 
@@ -253,7 +253,7 @@ def scan_daily(adapter: AkshareAdapter, conn, rules: list[dict], pool: list[str]
     return fired
 
 
-def heartbeat_stock(adapter: AkshareAdapter, conn, pool: list[str]) -> None:
+def heartbeat_stock(adapter: AkshareAdapter, conn, pool: list[str]) -> list[str]:
     now = adapter.server_time()
     stale = []
     for internal in pool:
@@ -265,6 +265,7 @@ def heartbeat_stock(adapter: AkshareAdapter, conn, pool: list[str]) -> None:
         if age_days > 5:  # 覆盖周末与小长假
             stale.append(f"{internal}:{age_days:.1f}天无新bar")
     print(f"[心跳/A股] {_utc(now).astimezone(CST):%m-%d %H:%M:%S} 池{len(pool)}标的 | 停更: {stale or '无'}", flush=True)
+    return stale
 
 
 # ---------- 采集 + 评估 ----------
@@ -339,7 +340,7 @@ def _evaluate_trigger(conn, adapter: OKXAdapter, rules: list[dict], internal: st
 # ---------- 心跳 ----------
 
 def heartbeat(adapter: OKXAdapter, conn, pool: list[str], cts: tuple[str, ...],
-              tfs: tuple[str, ...], core=None) -> None:
+              tfs: tuple[str, ...], core=None) -> list[str]:
     now = adapter.server_time()
     stale = []
     for internal in pool:
@@ -354,6 +355,42 @@ def heartbeat(adapter: OKXAdapter, conn, pool: list[str], cts: tuple[str, ...],
                 if age > 2 * tf_ms:
                     stale.append(f"{internal}/{ct}/{tf}:滞后{age // 60000}min")
     print(f"[心跳] {_utc(now).astimezone(CST):%m-%d %H:%M:%S} 池{len(pool)}标的 | 停更: {stale or '无'}", flush=True)
+    return stale
+
+
+class _StaleAlerter:
+    """停更告警状态机：正常→停更、停更→恢复各报一次；发送失败下一轮心跳重试。
+
+    notify(md) -> bool 由入口注入（企微/飞书卡片推送）；仅在状态迁移时触发，避免 60s 刷屏。
+    """
+
+    MAX_ITEMS = 10  # 卡片明细上限（企微 markdown 约 4KB 限制）
+
+    def __init__(self, notify):
+        self.notify = notify
+        self.stale = False
+        self.since = 0.0  # 首次检出停更的时刻（不受发送失败/成功影响）
+
+    def update(self, stale: list[str]) -> None:
+        now_stale = bool(stale)
+        if now_stale == self.stale:
+            return
+        ts = datetime.now(CST).strftime("%m-%d %H:%M")
+        if now_stale:
+            self.since = self.since or time.time()
+            lines = [f"### 告警：行情数据停更（{len(stale)} 项）", f"**时间**：{ts} 北京时间"]
+            lines += [f"- {x}" for x in stale[:self.MAX_ITEMS]]
+            if len(stale) > self.MAX_ITEMS:
+                lines.append(f"- …共 {len(stale)} 项")
+            lines.append("**说明**：扫描器仍在运行，但上述数据源未更新；恢复后自动通知。")
+            if self.notify("\n".join(lines)):
+                self.stale = True
+        else:
+            dur = int((time.time() - self.since) / 60) if self.since else 0
+            md = (f"### 恢复：行情数据正常\n**时间**：{ts} 北京时间\n"
+                  f"停更持续约 {dur} 分钟，全部池标的恢复更新。")
+            if self.notify(md):
+                self.stale, self.since = False, 0.0
 
 
 # ---------- 入口 ----------
@@ -451,7 +488,7 @@ def _news_with_conn() -> None:
         conn.close()
 
 
-def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
+def main(once: bool = False, on_signal=None, on_weekly=None, on_alert=None) -> None:
     adapter = OKXAdapter(settings.okx_proxy)
     stock_adapter = AkshareAdapter()
     conn = db.connect(settings.pg_dsn)
@@ -492,13 +529,17 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
             if on_signal:
                 on_signal(s)
 
+    alerter = _StaleAlerter(on_alert) if on_alert else None
+
     def hb() -> None:
         conn = db.connect(settings.pg_dsn)
         try:
-            heartbeat(adapter, conn, active_pool(conn, pool), cts, tfs,
-                      core_from_rules(load_rules(conn)))
+            stale = heartbeat(adapter, conn, active_pool(conn, pool), cts, tfs,
+                              core_from_rules(load_rules(conn)))
             if spool:
-                heartbeat_stock(stock_adapter, conn, stock_pool(conn))
+                stale += heartbeat_stock(stock_adapter, conn, stock_pool(conn))
+            if alerter:
+                alerter.update(stale)
         finally:
             conn.close()
 

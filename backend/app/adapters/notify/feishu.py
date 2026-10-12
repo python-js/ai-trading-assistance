@@ -99,8 +99,9 @@ class FeishuNotifier:
         db.insert_push_log(conn, signal_id=s["signal_id"], channel=self.channel, status="sent")
         return True
 
-    def push_markdown(self, md: str, conn) -> bool:
-        """周报等：首行 "### 标题" 提为卡片标题，其余作 lark_md 正文。"""
+    def push_markdown(self, md: str, conn=None) -> bool:
+        """周报/告警等：首行 "### 标题" 提为卡片标题，其余作 lark_md 正文；
+        conn 为空时跳过 push_log（看门狗不依赖 DB）。"""
         lines = md.splitlines()
         title = "行情简报"
         if lines and lines[0].startswith("### "):
@@ -108,8 +109,10 @@ class FeishuNotifier:
         try:
             self._post(self._card(title, "\n".join(lines)))
         except Exception as e:
-            db.insert_push_log(conn, signal_id=None, channel=self.channel,
-                               status="failed", error=f"card: {e}")
+            if conn:
+                db.insert_push_log(conn, signal_id=None, channel=self.channel,
+                                   status="failed", error=f"card: {e}")
             return False
-        db.insert_push_log(conn, signal_id=None, channel=self.channel, status="sent")
+        if conn:
+            db.insert_push_log(conn, signal_id=None, channel=self.channel, status="sent")
         return True
