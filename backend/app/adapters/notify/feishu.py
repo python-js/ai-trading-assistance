@@ -36,6 +36,11 @@ def render_signal_lark(s: dict) -> str:
     if cv:
         lines.append(f"**读图**：{_STANCE_CN.get(cv[1]['stance'], cv[1]['stance'])} {cv[0]:.2f}"
                      f" · {cv[1]['reason'][:40]}")
+    ev = v.get("info")
+    top = (ev[1].get("top") or []) if ev else []
+    if top and top[0].get("url"):
+        t = top[0]
+        lines.append(f"**溯源**：[{(t.get('title') or t['url'])[:40]}]({t['url']})")
     if s.get("reason"):
         lines.append(f"**AI 研判**：{s['reason']}")
     lines.append("*研究信号，非投资建议*")

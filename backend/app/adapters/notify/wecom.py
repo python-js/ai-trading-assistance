@@ -33,6 +33,9 @@ def render_signal_md(s: dict) -> str:
     if cv:
         lines.append(f"> 读图：{_STANCE_CN.get(cv[1]['stance'], cv[1]['stance'])} {cv[0]:.2f}"
                      f" · {cv[1]['reason'][:40]}")
+    sl = _source_line(s)
+    if sl:
+        lines.append(sl)
     if s.get("reason"):
         lines.append(f"> AI 研判：{s['reason']}")
     lines.append("> *研究信号，非投资建议*")
@@ -40,6 +43,16 @@ def render_signal_md(s: dict) -> str:
 
 
 _STANCE_CN = {"agree": "赞同", "oppose": "反对", "neutral": "中性"}
+
+
+def _source_line(s: dict) -> str | None:
+    """信息票最强命中的新闻溯源行（P2 通过标准：推送含溯源链接）。"""
+    ev = (s.get("votes") or {}).get("info")
+    top = (ev[1].get("top") or []) if ev else []
+    if top and top[0].get("url"):
+        t = top[0]
+        return f"> 溯源：[{(t.get('title') or t['url'])[:40]}]({t['url']})"
+    return None
 
 
 def _votes_line(s: dict) -> str | None:

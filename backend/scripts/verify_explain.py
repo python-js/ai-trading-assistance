@@ -101,9 +101,17 @@ def main() -> None:
     check("含三票强度行", "> 三票：技术 0.75 · 资金面 0.62 · 信息 —" in md)
     check("含 AI 研判行", "> AI 研判：EMA20 上穿 EMA60" in md)
     check("保留免责声明", "非投资建议" in md)
+    s_src = {**s, "votes": {**SIG["votes"], "info": (
+        0.7, {"n_events": 2, "score": 0.4,
+              "top": [{"title": "SEC 批准 X 现货 ETF",
+                       "url": "https://example.com/n1"}]})}}
+    check("含溯源链接行（信息票 top 命中）",
+          "> 溯源：[SEC 批准 X 现货 ETF](https://example.com/n1)" in render_signal_md(s_src))
+    check("无 top 命中无溯源行", "溯源" not in md)
     old = {k: v for k, v in SIG.items() if k not in ("votes",)}
     md_old = render_signal_md(old)
-    check("无 votes/reason 兼容原版式", "三票" not in md_old and "AI 研判" not in md_old)
+    check("无 votes/reason 兼容原版式",
+          "三票" not in md_old and "AI 研判" not in md_old and "溯源" not in md_old)
 
     # ---------- ⑦ 真实 LLM ----------
     print("⑦ 真实 LLM 解释（百炼）")

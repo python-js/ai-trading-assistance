@@ -64,7 +64,9 @@ def make_signal(conn) -> dict:
             "ts": last["ts"], "direction": "entry", "price": float(last["close"]),
             "price_zone_low": float(last["close"]) - 0.5 * atr,
             "price_zone_high": float(last["close"]) + 0.5 * atr, "atr": atr,
-            "votes": {"tech": (0.75, {}), "flow": (0.62, {}), "info": (None, {})},
+            "votes": {"tech": (0.75, {}), "flow": (0.62, {}),
+                      "info": (0.7, {"n_events": 1, "top": [
+                          {"title": "SEC 批准 X", "url": "https://example.com/n1"}]})},
             "chart": (0.9, {"stance": "agree", "confidence": 0.8,
                             "reason": "EMA20 上穿 EMA60", "model": "mock"}),
             "reason": "技术面偏强，注意量能。"}
@@ -89,8 +91,9 @@ def main() -> None:
     assert p["msg_type"] == "interactive"
     assert p["card"]["header"]["title"]["content"] == "买入信号 BTC/USDT 1h"
     body = p["card"]["elements"][0]["text"]["content"]
-    for frag in ("**规则**", "**三票**：技术 0.75 · 资金面 0.62 · 信息 —",
-                 "**读图**：赞同 0.90 · EMA20", "**AI 研判**：技术面偏强", "非投资建议"):
+    for frag in ("**规则**", "**三票**：技术 0.75 · 资金面 0.62 · 信息 0.70",
+                 "**读图**：赞同 0.90 · EMA20", "**溯源**：[SEC 批准 X](https://example.com/n1)",
+                 "**AI 研判**：技术面偏强", "非投资建议"):
         assert frag in body, f"缺 {frag}: {body}"
     assert last_log(conn)[0] == "sent"
     print(f"1) payload OK：interactive 卡片，正文 {len(body)} 字，push_log={last_log(conn)}")
@@ -148,8 +151,9 @@ def main() -> None:
     # 6) P0 版式兼容（无 votes/chart/reason）
     old = {k: v for k, v in sig.items() if k not in ("votes", "chart", "reason")}
     body = render_signal_lark(old)
-    assert "三票" not in body and "读图" not in body and "AI 研判" not in body
-    print("6) P0 版式兼容 OK（无三票/读图/研判行）")
+    assert ("三票" not in body and "读图" not in body and "溯源" not in body
+            and "AI 研判" not in body)
+    print("6) P0 版式兼容 OK（无三票/读图/溯源/研判行）")
 
     # 清理（push_log 均为本脚本产物：channel='feishu'）
     with conn.cursor() as cur:
