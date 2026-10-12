@@ -1,7 +1,8 @@
 """P1-1 模拟台账（S6）：信号配对结算 → paper_position。
 
-口径（2026-10-12 确认）：成交价 = 信号 bar 收盘价（=推送价，PIT）；成本 = taker 单边
-0.05% + 滑点单边 5bps（与研究层 run_backtest.py 一致）；每笔名义本金 1000 USDT。
+口径（2026-10-12 确认）：成交价 = 信号 bar 收盘价（=推送价，PIT）；每笔名义本金：
+币圈 1000 USDT（taker 单边 0.05% + 滑点单边 5bps，与研究层 run_backtest.py 一致），
+A股 10000 CNY（佣金万 2.5 单边、最低 5 元/笔 + 印花税千 0.5 仅卖出 + 滑点单边 5bps）。
 幂等：以入场 signal_id 为唯一键 upsert，rebuild() 可反复执行、结果一致。
 """
 from __future__ import annotations
@@ -10,9 +11,14 @@ import pandas as pd
 
 from app.models import db
 
-FEES = 0.0005      # taker 单边
+FEES = 0.0005      # taker 单边（币圈）
 SLIP_BPS = 5.0     # 滑点单边 bps
-NOTIONAL = 1000.0  # 每笔名义本金 USDT
+NOTIONAL = 1000.0  # 每笔名义本金 USDT（币圈）
+
+COMM_A = 0.00025     # A股佣金万 2.5 单边
+MIN_COMM_A = 5.0     # A股佣金最低 5 元/笔
+STAMP_A = 0.0005     # A股印花税千 0.5 仅卖出
+NOTIONAL_A = 10_000.0  # A股每笔名义本金 CNY
 
 
 class _Px:
@@ -51,10 +57,12 @@ def _get_px(conn, cache: dict, key: tuple) -> _Px:
 
 
 def _settle(entry: dict, exit_: dict | None, px: _Px, *,
-            fees: float, slip_bps: float, notional: float) -> dict:
+            fees: float, slip_bps: float, notional: float, stock: bool = False) -> dict:
     slip = slip_bps / 10_000
     e_close = px.close_at(entry["ts"])
     entry_eff = e_close * (1 + slip)
+    if stock:
+        notional = NOTIONAL_A
     qty = notional / entry_eff
     end_ts = exit_["ts"] if exit_ else px.index[-1]
     row = {
@@ -67,8 +75,13 @@ def _settle(entry: dict, exit_: dict | None, px: _Px, *,
         row.update(status="open", exit_ts=None, exit_price=None, pnl=None, pnl_pct=None)
         return row
     x_close = px.close_at(exit_["ts"])
-    cost_in = notional * (1 + fees)
-    proceeds = qty * x_close * (1 - slip) * (1 - fees)
+    if stock:
+        cost_in = notional + max(notional * COMM_A, MIN_COMM_A)
+        gross = qty * x_close * (1 - slip)
+        proceeds = gross - max(gross * COMM_A, MIN_COMM_A) - gross * STAMP_A
+    else:
+        cost_in = notional * (1 + fees)
+        proceeds = qty * x_close * (1 - slip) * (1 - fees)
     row.update(status="closed", exit_ts=exit_["ts"], exit_price=x_close,
                pnl=proceeds - cost_in, pnl_pct=(proceeds - cost_in) / cost_in)
     return row
@@ -86,11 +99,12 @@ def build_trades(conn, *, fees: float = FEES, slip_bps: float = SLIP_BPS,
             pending[key] = s
         elif key in pending:
             px = _get_px(conn, px_cache, key)
-            out.append(_settle(pending.pop(key), s, px,
-                               fees=fees, slip_bps=slip_bps, notional=notional))
+            out.append(_settle(pending.pop(key), s, px, fees=fees, slip_bps=slip_bps,
+                               notional=notional, stock=s["exchange"] == "akshare"))
     for key, entry in pending.items():
         px = _get_px(conn, px_cache, key)
-        out.append(_settle(entry, None, px, fees=fees, slip_bps=slip_bps, notional=notional))
+        out.append(_settle(entry, None, px, fees=fees, slip_bps=slip_bps,
+                           notional=notional, stock=entry["exchange"] == "akshare"))
     out.sort(key=lambda r: r["entry_ts"])
     return out
 

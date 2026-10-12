@@ -108,7 +108,12 @@ def signals(symbol: str | None = None, timeframe: str | None = None,
 @router.get("/ohlcv")
 def ohlcv(symbol: str, timeframe: str = "1h", limit: int = Query(500, ge=50, le=2000),
           conn=Depends(get_conn)):
-    df = db.load_ohlcv(conn, symbol, "okx", "spot", timeframe, limit=limit)
+    meta = _rows(conn, """SELECT exchange, contract_type FROM ohlcv
+                          WHERE symbol=%s AND timeframe=%s LIMIT 1""", [symbol, timeframe])
+    if not meta:
+        raise HTTPException(404, f"无数据: {symbol} {timeframe}")
+    ex, ct = meta[0]["exchange"], meta[0]["contract_type"]
+    df = db.load_ohlcv(conn, symbol, ex, ct, timeframe, limit=limit)
     if df.empty:
         raise HTTPException(404, f"无数据: {symbol} {timeframe}")
     ind = enrich(df)
@@ -122,10 +127,10 @@ def ohlcv(symbol: str, timeframe: str = "1h", limit: int = Query(500, ge=50, le=
            for k in ("ema20", "ema60")}
     sigs = _rows(conn, """SELECT id, ts, direction, price_zone_low, price_zone_high
                           FROM signal
-                          WHERE symbol=%s AND timeframe=%s AND exchange='okx'
-                            AND contract_type='spot' AND ts >= %s AND ts <= %s
+                          WHERE symbol=%s AND timeframe=%s AND exchange=%s
+                            AND contract_type=%s AND ts >= %s AND ts <= %s
                           ORDER BY ts""",
-                 [symbol, timeframe, ts[0].to_pydatetime(), ts[-1].to_pydatetime()])
+                 [symbol, timeframe, ex, ct, ts[0].to_pydatetime(), ts[-1].to_pydatetime()])
     markers = [{"time": int(s["ts"].timestamp()), "direction": s["direction"],
                 "price": (s["price_zone_low"] + s["price_zone_high"]) / 2,
                 "signal_id": s["id"]} for s in sigs]
@@ -138,9 +143,10 @@ def get_symbols(conn=Depends(get_conn)):
         SELECT r.symbol, r.timeframe, count(*) AS n_rules,
                (SELECT max(o.ts) FROM ohlcv o
                 WHERE o.symbol = r.symbol AND o.timeframe = r.timeframe
-                  AND o.exchange = 'okx' AND o.contract_type = 'spot') AS last_ts
+                  AND o.exchange = r.exchange AND o.contract_type = r.contract_type) AS last_ts
         FROM rule r WHERE r.enabled
-        GROUP BY r.symbol, r.timeframe ORDER BY r.symbol, r.timeframe""", [])
+        GROUP BY r.symbol, r.timeframe, r.exchange, r.contract_type
+        ORDER BY r.symbol, r.timeframe""", [])
     pool: dict[str, list] = {}
     for r in rows:
         pool.setdefault(r["symbol"], []).append(

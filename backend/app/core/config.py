@@ -16,6 +16,7 @@ class Settings:
     pg_dsn: str
     okx_proxy: str
     symbols: tuple[str, ...]
+    stock_symbols: tuple[str, ...]
     contract_types: tuple[str, ...]
     timeframes: tuple[str, ...]
     backfill_days: int
@@ -33,6 +34,7 @@ def load() -> Settings:
         pg_dsn=f"postgresql://{user}:{pw}@{host}:{port}/{db}",
         okx_proxy=os.getenv("OKX_PROXY", ""),
         symbols=_csv("SYMBOLS", "BTC/USDT"),
+        stock_symbols=_csv("STOCK_SYMBOLS", "000157.SZ,002284.SZ,600199.SH"),
         contract_types=_csv("CONTRACT_TYPES", "spot"),
         timeframes=_csv("TIMEFRAMES", "1h"),
         backfill_days=int(os.getenv("BACKFILL_DAYS", "30")),

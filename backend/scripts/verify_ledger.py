@@ -57,10 +57,20 @@ def main() -> None:
     for (sid, ets, epr, qty, st, xts, xpr, pnl, pnl_pct, rid, sym, ex, ct, tf) in rows:
         slip = ledger.SLIP_BPS / 10_000
         if st == "closed":
-            qty2 = ledger.NOTIONAL / (epr * (1 + slip))
-            pnl2 = qty2 * xpr * (1 - slip) * (1 - ledger.FEES) - ledger.NOTIONAL * (1 + ledger.FEES)
+            if ex == "akshare":  # A股口径：佣金万2.5(最低5元/笔)+印花税千0.5卖出+滑点5bps
+                qty2 = ledger.NOTIONAL_A / (epr * (1 + slip))
+                cost_in = ledger.NOTIONAL_A + max(ledger.NOTIONAL_A * ledger.COMM_A,
+                                                  ledger.MIN_COMM_A)
+                gross = qty2 * xpr * (1 - slip)
+                proceeds = gross - max(gross * ledger.COMM_A, ledger.MIN_COMM_A) \
+                    - gross * ledger.STAMP_A
+                pnl2, base = proceeds - cost_in, cost_in
+            else:
+                qty2 = ledger.NOTIONAL / (epr * (1 + slip))
+                pnl2 = qty2 * xpr * (1 - slip) * (1 - ledger.FEES) - ledger.NOTIONAL * (1 + ledger.FEES)
+                base = ledger.NOTIONAL * (1 + ledger.FEES)
             ok = (abs(qty - qty2) < 1e-9 and abs(pnl - pnl2) < 1e-9
-                  and abs(pnl_pct - pnl2 / (ledger.NOTIONAL * (1 + ledger.FEES))) < 1e-12
+                  and abs(pnl_pct - pnl2 / base) < 1e-12
                   and xts is not None)
         else:
             ok = (pnl is None and pnl_pct is None and xts is None and xpr is None)

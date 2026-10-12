@@ -116,7 +116,8 @@ def main() -> None:
         cur.execute("""SELECT max(ts) FROM ohlcv
                        WHERE symbol=%s AND timeframe='1h'""", (TEST_SYM,))
         hi = cur.fetchone()[0]
-    age_min = (datetime.now(timezone.utc) - hi).total_seconds() / 60 if hi else 1e9
+    # 滞后 = 距最新已收盘 1h bar 起点超出 1h 的部分（正常范围 0~60，与 heartbeat 口径一致）
+    age_min = (datetime.now(timezone.utc) - hi).total_seconds() / 60 - 60 if hi else 1e9
     check("扫描 tick 冒烟(DOGE 数据新鲜)", isinstance(fired, list) and age_min <= 65,
           f"age={age_min:.0f}min fired={len(fired)}")
 

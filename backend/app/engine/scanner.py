@@ -13,12 +13,15 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta, timezone
 
+import pandas as pd
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from app.adapters.market.akshare_cn import AkshareAdapter
 from app.adapters.market.ccxt_okx import OKXAdapter
 from app.core.config import settings
+from app.engine import replay
 from app.engine.indicators import enrich
 from app.engine.rules_dsl import WARMUP_BARS, evaluate, parse_rule
 from app.models import db
@@ -26,6 +29,9 @@ from app.models import db
 SCAN_WINDOW = 600  # 评估窗口（≥WARMUP+余量；只取最新 bar 事件，指标种子暂态无关）
 HISTORY_MIN_BARS = 250
 CORE = settings.symbols  # 核心池 = 配置自选池（1m 仅此）；市值 TOP 扩展仅 1h/4h
+STOCK_TF = "1d"
+STOCK_TF_MS = 86_400_000
+STOCK_AVAIL_OFFSET_MS = 7 * 3600 * 1000  # A股 15:00 CST 收盘 = 07:00 UTC（无夏令时）
 
 
 def last_closed_ms(now_ms: int, tf_ms: int, buffer_ms: int = 3000) -> int:
@@ -112,21 +118,23 @@ def rule_name(sym: str, tf: str) -> str:
 
 
 def rule_templates(tfs: tuple[str, ...]) -> list[tuple[str, dict, dict, int]]:
-    """(tf, entry, exit, cooldown) 模板：4h 裸交叉 / 1h RSI 过滤+chandelier / 1m 裸交叉。"""
+    """(tf, entry, exit, cooldown) 模板：4h 裸交叉 / 1h RSI 过滤+chandelier / 1m 裸交叉 / 1d 裸交叉。"""
     cross = {"cross_up": ["ema20", "ema60"]}
     cross_dn = {"cross_down": ["ema20", "ema60"]}
     tpl = {"4h": (cross, cross_dn, 2),
            "1h": ({"all": [cross, {"rsi14": {"<": 70}}]},
                   {"any": [cross_dn, {"chandelier_exit": {"atr_mult": 3}}]}, 6),
-           "1m": (cross, cross_dn, 30)}
+           "1m": (cross, cross_dn, 30),
+           "1d": (cross, cross_dn, 2)}
     return [(tf, *tpl[tf]) for tf in tfs]
 
 
-def ensure_rules(conn, sym: str, tfs: tuple[str, ...]) -> None:
+def ensure_rules(conn, sym: str, tfs: tuple[str, ...], *,
+                 exchange: str = "okx", ct: str = "spot") -> None:
     """按模板为标的 upsert 规则（幂等；seed 与自助加币共用）。"""
     for tf, entry, exit_, cd in rule_templates(tfs):
         name = rule_name(sym, tf)
-        db.upsert_rule(conn, name=name, symbol=sym, exchange="okx", contract_type="spot",
+        db.upsert_rule(conn, name=name, symbol=sym, exchange=exchange, contract_type=ct,
                        timeframe=tf, dsl=_dsl(name, sym, tf, entry, exit_, cd),
                        cooldown_bars=cd)
 
@@ -144,6 +152,112 @@ def load_rules(conn) -> list[dict]:
     for r in db.load_enabled_rules(conn):
         rules.append({**r, "rule": parse_rule(r["dsl_json"])})
     return rules
+
+
+# ---------- A股（P1-6：akshare 日线，07:00 UTC 收盘评估） ----------
+
+def stock_pool(conn) -> list[str]:
+    """A股池 = 配置 STOCK_SYMBOLS ∪ symbol 表（exchange=akshare）。"""
+    extra = [r["symbol"] for r in db.load_active_symbols(conn)
+             if r["exchange"] == "akshare" and r["contract_type"] == "stock"]
+    return list(dict.fromkeys(list(settings.stock_symbols) + extra))
+
+
+def seed_stock(conn, pool: list[str]) -> None:
+    """A股标的登记 + 1d 规则种子（幂等）。symbol "000157.SZ" ↔ akshare 代码 "000157"。"""
+    for sym in pool:
+        code = sym.split(".")[0]
+        db.upsert_symbol(conn, symbol=sym, exchange="akshare", asset_class="stock",
+                         contract_type="stock", base=code, quote="CNY", exchange_symbol=code)
+        ensure_rules(conn, sym, (STOCK_TF,), exchange="akshare", ct="stock")
+
+
+def ensure_stock_history(adapter: AkshareAdapter, conn, pool: list[str]) -> None:
+    """不足 HISTORY_MIN_BARS 的标的回填（500 自然日 ≈ 340 交易日）并立即 replay 补登信号，
+    避免首次评估把历史 bar 当新信号推送。"""
+    for internal in pool:
+        n, _, _ = db.count_ohlcv(conn, internal, adapter.exchange, "stock", STOCK_TF)
+        if n >= HISTORY_MIN_BARS:
+            continue
+        since = adapter.server_time() - 500 * 86_400_000
+        rows = adapter.fetch_ohlcv(adapter.to_ccxt_symbol(internal, "stock"),
+                                   STOCK_TF, since=since)
+        if rows:
+            db.upsert_ohlcv(conn, rows, {"symbol": internal, "exchange": adapter.exchange,
+                                         "contract_type": "stock", "timeframe": STOCK_TF})
+        print(f"  [回填/A股] {internal} {len(rows)} 根")
+        replay.backfill(conn, symbol=internal)
+
+
+def stock_trigger_ms(now_ms: int) -> int:
+    """最近一个已收盘交易日的 bar ts（00:00 UTC）；当日 bar 07:00 UTC 前不可用。"""
+    return ((now_ms - STOCK_AVAIL_OFFSET_MS) // STOCK_TF_MS) * STOCK_TF_MS
+
+
+def _evaluate_daily(conn, adapter: AkshareAdapter, rules: list[dict], internal: str,
+                    new_ts: set) -> list[dict]:
+    """对指定 bar（new_ts）评估该标的 1d 规则；价格区间用事件 bar 自身 ATR。"""
+    matching = [r for r in rules if r["symbol"] == internal and r["timeframe"] == STOCK_TF]
+    if not matching:
+        return []
+    df = db.load_ohlcv(conn, internal, adapter.exchange, "stock", STOCK_TF, limit=SCAN_WINDOW)
+    if len(df) < WARMUP_BARS + 2:
+        print(f"  [警告] {internal} {STOCK_TF} 样本不足({len(df)})，跳过评估")
+        return []
+    ind = enrich(df)
+    atr_by_ts = {pd.Timestamp(t): float(a) for t, a in zip(ind["ts"], ind["atr14"])}
+    out = []
+    for r in matching:
+        for e in evaluate(r["rule"], ind):
+            if int(pd.Timestamp(e.ts).timestamp() * 1000) not in new_ts:
+                continue
+            a = atr_by_ts[pd.Timestamp(e.ts)]
+            sid = db.insert_signal_if_new(
+                conn, rule_id=r["id"], symbol=internal, exchange=adapter.exchange,
+                contract_type="stock", timeframe=STOCK_TF, ts=e.ts, direction=e.direction,
+                price_zone_low=e.price - 0.5 * a, price_zone_high=e.price + 0.5 * a)
+            if sid:
+                out.append({"signal_id": sid, "rule": r["name"], "symbol": internal,
+                            "exchange": adapter.exchange, "contract_type": "stock",
+                            "timeframe": STOCK_TF, "ts": e.ts, "direction": e.direction,
+                            "price": e.price, "price_zone_low": e.price - 0.5 * a,
+                            "price_zone_high": e.price + 0.5 * a, "atr": a})
+    return out
+
+
+def scan_daily(adapter: AkshareAdapter, conn, rules: list[dict], pool: list[str]) -> list[dict]:
+    """A股日线扫描：拉新 bar 全部评估（数据源延迟时次日自动补评；去重不重推）。"""
+    now = adapter.server_time()
+    trigger = stock_trigger_ms(now)
+    fired: list[dict] = []
+    for internal in pool:
+        prev = db.max_ohlcv_ts(conn, internal, adapter.exchange, "stock", STOCK_TF)
+        prev_ms = int(prev.timestamp() * 1000) if prev else None
+        rows = adapter.fetch_ohlcv(adapter.to_ccxt_symbol(internal, "stock"), STOCK_TF,
+                                   since=prev_ms or (now - 500 * 86_400_000))
+        rows = [r for r in rows if r[0] <= trigger]
+        if not rows:
+            continue
+        db.upsert_ohlcv(conn, rows, {"symbol": internal, "exchange": adapter.exchange,
+                                     "contract_type": "stock", "timeframe": STOCK_TF})
+        new_ts = {r[0] for r in rows if prev_ms is None or r[0] > prev_ms}
+        if new_ts:
+            fired += _evaluate_daily(conn, adapter, rules, internal, new_ts)
+    return fired
+
+
+def heartbeat_stock(adapter: AkshareAdapter, conn, pool: list[str]) -> None:
+    now = adapter.server_time()
+    stale = []
+    for internal in pool:
+        hi = db.max_ohlcv_ts(conn, internal, adapter.exchange, "stock", STOCK_TF)
+        if hi is None:
+            stale.append(f"{internal}:无数据")
+            continue
+        age_days = (now - int(hi.timestamp() * 1000)) / 86_400_000
+        if age_days > 5:  # 覆盖周末与小长假
+            stale.append(f"{internal}:{age_days:.1f}天无新bar")
+    print(f"[心跳/A股] {_utc(now):%m-%d %H:%M:%S} 池{len(pool)}标的 | 停更: {stale or '无'}", flush=True)
 
 
 # ---------- 采集 + 评估 ----------
@@ -244,14 +358,27 @@ def _scan_with_conn(adapter: OKXAdapter, startup_pool: list[str],
         conn.close()
 
 
+def _scan_stock_with_conn(adapter: AkshareAdapter) -> list[dict]:
+    conn = db.connect(settings.pg_dsn)
+    try:
+        return scan_daily(adapter, conn, load_rules(conn), stock_pool(conn))
+    finally:
+        conn.close()
+
+
 def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
     adapter = OKXAdapter(settings.okx_proxy)
+    stock_adapter = AkshareAdapter()
     conn = db.connect(settings.pg_dsn)
     pool = active_pool(conn, build_pool(adapter))  # 并入 symbol 表自助加币（重启自愈回填）
+    spool = stock_pool(conn)
     cts, tfs = settings.contract_types, settings.timeframes
     print(f"自选池({len(pool)}): {pool} | ct={cts} | tf={tfs}")
+    print(f"A股池({len(spool)}): {spool} | tf={STOCK_TF}")
     ensure_history(adapter, conn, pool, cts, tfs)
     seed_rules(conn, pool)
+    seed_stock(conn, spool)
+    ensure_stock_history(stock_adapter, conn, spool)
     rules = load_rules(conn)
     print(f"规则 {len(rules)} 条: {sorted({r['timeframe'] for r in rules})} 周期")
 
@@ -266,11 +393,26 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
             if on_signal:
                 on_signal(s)
 
+    def job_stock() -> None:
+        if not spool:
+            return
+        t0 = time.time()
+        fired = _scan_stock_with_conn(stock_adapter)
+        print(f"[{datetime.now(timezone.utc):%m-%d %H:%M:%S}] {STOCK_TF:3} 扫描A股 "
+              f"{time.time() - t0:.1f}s 新信号 {len(fired)}", flush=True)
+        for s in fired:
+            print(f"  ▶ {s['rule']} {s['direction']} @ {s['price']:.6g} "
+                  f"区间[{s['price_zone_low']:.6g},{s['price_zone_high']:.6g}]", flush=True)
+            if on_signal:
+                on_signal(s)
+
     def hb() -> None:
         conn = db.connect(settings.pg_dsn)
         try:
             heartbeat(adapter, conn, active_pool(conn, pool), cts, tfs,
                       core_from_rules(load_rules(conn)))
+            if spool:
+                heartbeat_stock(stock_adapter, conn, stock_pool(conn))
         finally:
             conn.close()
 
@@ -278,6 +420,7 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
         hb()
         for tf in tfs:
             job(tf)
+        job_stock()
         conn.close()
         return
 
@@ -285,6 +428,9 @@ def main(once: bool = False, on_signal=None, on_weekly=None) -> None:
     for tf in tfs:
         sched.add_job(lambda tf=tf: job(tf), trigger_for(tf),
                       id=f"scan_{tf}", max_instances=1, coalesce=True)
+    if spool:
+        sched.add_job(job_stock, CronTrigger(hour=7, minute=5, second=5),
+                      id="scan_stock_1d", max_instances=1, coalesce=True)
     sched.add_job(hb, IntervalTrigger(seconds=60), id="heartbeat", max_instances=1)
     if on_weekly:
         sched.add_job(on_weekly, CronTrigger(day_of_week="mon", hour=1, minute=0),
