@@ -21,11 +21,30 @@ CHART_DIR = "data/charts"
 
 def render_signal_md(s: dict) -> str:
     d = "买入" if s["direction"] == "entry" else "卖出"
-    return (f"### {d}信号 {s['symbol']} {s['timeframe']}\n"
-            f"> 规则：{s['rule']}\n"
-            f"> 价格：{s['price']:.6g}（区间 {s['price_zone_low']:.6g} ~ {s['price_zone_high']:.6g}）\n"
-            f"> 时间：{s['ts']:%Y-%m-%d %H:%M} UTC · {s['contract_type']}\n"
-            f"> *研究信号，非投资建议*")
+    lines = [f"### {d}信号 {s['symbol']} {s['timeframe']}",
+             f"> 规则：{s['rule']}",
+             f"> 价格：{s['price']:.6g}（区间 {s['price_zone_low']:.6g} ~ {s['price_zone_high']:.6g}）",
+             f"> 时间：{s['ts']:%Y-%m-%d %H:%M} UTC · {s['contract_type']}"]
+    vl = _votes_line(s)
+    if vl:
+        lines.append(vl)
+    if s.get("reason"):
+        lines.append(f"> AI 研判：{s['reason']}")
+    lines.append("> *研究信号，非投资建议*")
+    return "\n".join(lines)
+
+
+def _votes_line(s: dict) -> str | None:
+    """三票强度行（P2-4）；无 votes 字段返回 None（P0 兼容）。"""
+    v = s.get("votes") or {}
+    if not v:
+        return None
+    parts = []
+    for k, label in (("tech", "技术"), ("flow", "资金面"), ("info", "信息")):
+        if k in v:
+            st = v[k][0]
+            parts.append(f"{label} {st:.2f}" if st is not None else f"{label} —")
+    return "> 三票：" + " · ".join(parts) if parts else None
 
 
 class WeComNotifier:
