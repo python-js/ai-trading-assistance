@@ -75,12 +75,49 @@ export async function api<T>(path: string): Promise<T> {
   return r.json();
 }
 
-export async function postAnnotation(signalId: number, userAction: string): Promise<void> {
+export async function postAnnotation(
+  signalId: number,
+  userAction: string,
+  note?: string
+): Promise<void> {
   const r = await fetch('/api/annotations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ signal_id: signalId, user_action: userAction }),
+    body: JSON.stringify({ signal_id: signalId, user_action: userAction, note: note || null }),
   });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+}
+
+export type Knowledge = {
+  id: number;
+  source_type: 'manual' | 'note';
+  text: string;
+  meta: Record<string, unknown>;
+  created_ts: string;
+};
+
+export const fetchKnowledge = (): Promise<Knowledge[]> => api<Knowledge[]>('/api/knowledge?limit=200');
+
+export async function addKnowledge(text: string): Promise<{ id: number }> {
+  const r = await fetch('/api/knowledge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) {
+    let msg = `${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      // 保持状态码
+    }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+export async function deleteKnowledge(id: number): Promise<void> {
+  const r = await fetch(`/api/knowledge/${id}`, { method: 'DELETE' });
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
 }
 

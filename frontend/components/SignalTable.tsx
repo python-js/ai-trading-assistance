@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Space, Table, Tag, Tooltip, message } from 'antd';
+import { Button, Input, Modal, Space, Table, Tag, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Signal, fmtTs, postAnnotation } from '@/lib/api';
 
@@ -19,12 +19,17 @@ export default function SignalTable({
   onChanged?: () => void;
 }) {
   const [busy, setBusy] = useState<number | null>(null);
+  const [pending, setPending] = useState<{ id: number; action: string } | null>(null);
+  const [note, setNote] = useState('');
 
-  const annotate = async (id: number, action: string) => {
-    setBusy(id);
+  const submit = async () => {
+    if (!pending) return;
+    setBusy(pending.id);
     try {
-      await postAnnotation(id, action);
-      message.success(`已标注：${action}`);
+      await postAnnotation(pending.id, pending.action, note.trim() || undefined);
+      message.success(note.trim() ? `已标注：${pending.action}（笔记已入知识库）` : `已标注：${pending.action}`);
+      setPending(null);
+      setNote('');
       onChanged?.();
     } catch (e) {
       message.error(`标注失败：${e instanceof Error ? e.message : e}`);
@@ -70,7 +75,10 @@ export default function SignalTable({
                 size="small"
                 loading={busy === s.id}
                 disabled={busy !== null && busy !== s.id}
-                onClick={() => annotate(s.id, a)}
+                onClick={() => {
+                  setPending({ id: s.id, action: a });
+                  setNote('');
+                }}
               >
                 {a}
               </Button>
@@ -81,14 +89,34 @@ export default function SignalTable({
   ];
 
   return (
-    <Table
-      rowKey="id"
-      size="small"
-      loading={loading}
-      columns={columns}
-      dataSource={signals}
-      pagination={{ pageSize: 20, showSizeChanger: false }}
-      locale={{ emptyText: '暂无信号' }}
-    />
+    <>
+      <Table
+        rowKey="id"
+        size="small"
+        loading={loading}
+        columns={columns}
+        dataSource={signals}
+        pagination={{ pageSize: 20, showSizeChanger: false }}
+        locale={{ emptyText: '暂无信号' }}
+      />
+      <Modal
+        title={pending ? `标注「${pending.action}」` : ''}
+        open={pending !== null}
+        okText="提交"
+        cancelText="取消"
+        confirmLoading={busy !== null}
+        onOk={submit}
+        onCancel={() => setPending(null)}
+      >
+        <Input.TextArea
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="复盘笔记（可选）：填了会向量化入知识库，推送理由前自动召回"
+          maxLength={500}
+          showCount
+        />
+      </Modal>
+    </>
   );
 }
