@@ -268,3 +268,29 @@ CREATE TABLE IF NOT EXISTS backtest_code_snapshot (
   strategy_script TEXT,
   config_json    JSONB
 );
+
+-- ============ 模拟盘（A6：多标的共享资金池 · 固定比例复利 · 策略时间线） ============
+CREATE TABLE IF NOT EXISTS sim_account (
+  id            BIGSERIAL PRIMARY KEY,
+  name          TEXT NOT NULL,
+  market        TEXT NOT NULL,                          -- crypto(USDT) / cn(CNY)，单盘不混
+  init_cash     DOUBLE PRECISION NOT NULL,
+  size_pct      DOUBLE PRECISION NOT NULL DEFAULT 30,   -- 每笔用当前权益的 %（复利）
+  stop_loss_pct DOUBLE PRECISION NOT NULL DEFAULT 50,   -- 权益回撤止损线 %；<=0 关闭
+  start_ts      TIMESTAMPTZ NOT NULL,
+  end_ts        TIMESTAMPTZ,                            -- 计划到期；NULL=不限
+  status        TEXT NOT NULL DEFAULT 'active',         -- active / finished（手动结束）
+  units_json    JSONB NOT NULL,                         -- [{symbol,exchange,contract_type,timeframe}]
+  created_ts    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sim_change (
+  id             BIGSERIAL PRIMARY KEY,
+  account_id     BIGINT NOT NULL REFERENCES sim_account(id) ON DELETE CASCADE,
+  unit_idx       INT NOT NULL,
+  effective_from TIMESTAMPTZ NOT NULL,                  -- 从该时刻（含）起的 bar 生效
+  name           TEXT NOT NULL,
+  dsl_json       JSONB NOT NULL,                        -- 策略快照（重放确定性，不随规则库变动）
+  created_ts     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sim_change_account ON sim_change (account_id, unit_idx, effective_from);

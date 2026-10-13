@@ -4,7 +4,7 @@
 
 > **研究信号，非投资建议。** 不接实盘、不自动下单；纸面台账用于以数据而非感觉评估信号质量。
 
-## 功能总览（P0~P3 全部完成）
+## 功能总览（P0~P3 + 模拟盘 A6 全部完成）
 
 | 阶段 | 内容 |
 |---|---|
@@ -12,6 +12,7 @@
 | P1 度量 | 信号确定性回放补登、纸面台账结算、周一 01:00 UTC 周报、事件驱动签发回测、FastAPI + H5 看板（标注回流）、标的搜索自助加币、A股（akshare 日线）全链路 |
 | P2 智能 | 资金面算子（funding/OI，PIT 对齐）、LLM 网关（百炼 + 回退链）、新闻 RSS → LLM 结构化事件、三票合议引擎、AI 解释文案、多模态读图票、飞书适配器、信息票 IC 独立回测 |
 | P3 知识 | 标注笔记 → 向量知识库（RAG 召回注入推送理由）、中文想法 → 规则草稿 → 沙箱回测、遗留修复（OKX 启动重试 / 回填仅已收盘） |
+| 模拟盘 A6 | 独立账户式模拟盘：多标的共享资金池、固定比例复利、策略时间线（随时调整）、止损线/到期/手动结束、确定性重放 + 复盘报告（归因 + LLM 建议） |
 | 监控告警 | 扫描器内：心跳停更/恢复推送告警（状态迁移触发，防刷屏）；进程级：外部看门狗（心跳 >3 分钟即告警，计划任务每 5 分钟） |
 
 ## 架构
@@ -23,7 +24,7 @@ OKX / A股(新浪) 行情 ──► 扫描器 backend/scripts/run_scanner.py（A
                           ├─ 心跳监控 → 停更 / 恢复告警卡片（on_alert）
                           └─ 周报（周一 01:00 UTC，台账命中率/盈亏比）
 Postgres + pgvector ── ohlcv / signal / push_log / paper_position / news / knowledge_chunk …
-FastAPI(backend) + Next.js(frontend) ── H5 看板：信号 / 台账 / 报表 / 知识库 / 策略页
+FastAPI(backend) + Next.js(frontend) ── H5 看板：信号 / 台账 / 报表 / 知识库 / 策略 / 模拟盘页
 看门狗 backend/scripts/watchdog.py（计划任务）── scanner.log 心跳停 >3min / 恢复 → 告警卡片
 ```
 
@@ -38,8 +39,8 @@ FastAPI(backend) + Next.js(frontend) ── H5 看板：信号 / 台账 / 报表
 ## 目录结构
 
 - `backend/app/adapters/`：market（ccxt/akshare）、notify（企微/飞书）、chart（mplfinance）
-- `backend/app/engine/`：scanner（扫描调度/心跳）、rules_dsl、backtest_event（事件回放）、ledger（台账）、votes（三票）、news、explain、rag（知识库）、rule_gen
-- `backend/app/api/`：FastAPI 路由（信号/台账/报表/知识库/规则）
+- `backend/app/engine/`：scanner（扫描调度/心跳）、rules_dsl、backtest_event（事件回放）、ledger（台账）、sim（模拟盘）、votes（三票）、news、explain、rag（知识库）、rule_gen
+- `backend/app/api/`：FastAPI 路由（信号/台账/报表/知识库/规则/模拟盘）
 - `backend/scripts/`：`run_scanner.py`（入口）、`watchdog.py`（外部哨兵）、`backfill_signals.py`（停机补登）、`verify_*.py`（离线验证）
 - `db/init/`：SQL schema；`frontend/`：Next.js 看板；`docs/`：各阶段功能文档
 
@@ -61,3 +62,4 @@ FastAPI(backend) + Next.js(frontend) ── H5 看板：信号 / 台账 / 报表
 - [docs/P1-度量闭环-功能文档.md](docs/P1-度量闭环-功能文档.md)
 - [docs/P2-智能研判-功能文档.md](docs/P2-智能研判-功能文档.md)
 - [docs/P3-知识与生成-功能文档.md](docs/P3-知识与生成-功能文档.md)
+- [docs/模拟盘-功能文档.md](docs/模拟盘-功能文档.md)

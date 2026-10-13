@@ -229,6 +229,168 @@ export async function addSymbol(symbol: string, timeframes: string[]): Promise<A
   return r.json();
 }
 
+// ---------- 模拟盘（共享资金池 · 固定比例复利 · 按需重放） ----------
+
+export type SimUnitIn = { symbol: string; timeframe: string; rule_id?: number };
+
+export type SimAccountRow = {
+  id: number;
+  name: string;
+  market: 'crypto' | 'cn';
+  init_cash: number;
+  size_pct: number;
+  stop_loss_pct: number;
+  start_ts: string;
+  end_ts: string | null;
+  status: 'active' | 'finished';
+  created_ts: string;
+  units: { symbol: string; exchange: string; contract_type: string; timeframe: string }[];
+};
+
+export type SimTrade = {
+  unit_idx: number;
+  symbol: string;
+  timeframe: string;
+  strategy: string;
+  entry_ts: string;
+  exit_ts: string;
+  entry_price: number;
+  exit_price: number;
+  qty: number;
+  notional: number;
+  pnl: number;
+  pnl_pct: number;
+  fees: number;
+  hold_hours: number;
+  mae: number;
+  exit_reason: 'signal' | 'stop_loss' | 'expired' | 'manual';
+};
+
+export type SimResult = {
+  status: 'active' | 'finished';
+  end_reason: 'stop_loss' | 'expired' | 'manual' | null;
+  end_ts: string | null;
+  cash: number;
+  realized: number;
+  equity: { time: number; value: number }[];
+  trades: SimTrade[];
+  open_pos: {
+    unit_idx: number;
+    symbol: string;
+    timeframe: string;
+    strategy: string;
+    entry_ts: string;
+    entry_price: number;
+    qty: number;
+    notional: number;
+    unrealized: number;
+  }[];
+  metrics: {
+    n_trades: number;
+    win_rate: number | null;
+    pf: number | null;
+    avg_pnl_pct: number | null;
+    total_pnl: number;
+    'return_on_init[%]': number;
+    'max_drawdown[%]': number;
+    fees_total: number;
+    avg_hold_hours: number | null;
+    'exposure[%]': number;
+  };
+  n_marks: number;
+  n_events: number;
+};
+
+export type SimDetail = {
+  id: number;
+  name: string;
+  market: 'crypto' | 'cn';
+  init_cash: number;
+  size_pct: number;
+  stop_loss_pct: number;
+  start_ts: string;
+  end_ts: string | null;
+  db_status: 'active' | 'finished';
+  units: { symbol: string; timeframe: string; changes: { effective_from: string; name: string }[] }[];
+  result: SimResult;
+};
+
+export type SimReview = {
+  status: string;
+  end_reason: string | null;
+  stats: SimResult['metrics'];
+  by_unit: {
+    symbol: string;
+    timeframe: string;
+    n: number;
+    win_rate: number | null;
+    total_pnl: number;
+    pf: number | null;
+  }[];
+  by_segment: {
+    unit_idx: number;
+    symbol: string;
+    timeframe: string;
+    strategy: string;
+    n: number;
+    win_rate: number | null;
+    total_pnl: number;
+    pf: number | null;
+  }[];
+  notes: string[];
+  llm: { text: string | null; ok: boolean; error: string | null };
+};
+
+async function postSim<T>(path: string, body?: unknown): Promise<T> {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) {
+    let msg = `${r.status}`;
+    try {
+      msg = (await r.json()).detail ?? msg;
+    } catch {
+      // 保持状态码
+    }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+export const fetchSims = (): Promise<SimAccountRow[]> => api<SimAccountRow[]>('/api/sim');
+
+export const fetchSim = (id: number): Promise<SimDetail> => api<SimDetail>(`/api/sim/${id}`);
+
+export const createSim = (body: {
+  name: string;
+  init_cash: number;
+  size_pct: number;
+  stop_loss_pct: number;
+  start_days_ago: number;
+  duration_days: number | null;
+  units: SimUnitIn[];
+}): Promise<{ id: number; name: string; units: { symbol: string; timeframe: string; strategy: string }[] }> =>
+  postSim('/api/sim', body);
+
+export const changeSimStrategy = (
+  id: number,
+  body: { unit_idx: number; rule_id?: number; text?: string }
+): Promise<{ ok: boolean; unit_idx: number; name: string }> =>
+  postSim(`/api/sim/${id}/change`, body);
+
+export const finishSim = (id: number): Promise<{ ok: boolean }> =>
+  postSim(`/api/sim/${id}/finish`);
+
+export const reviewSim = (id: number, llm: boolean): Promise<SimReview> =>
+  postSim(`/api/sim/${id}/review?llm=${llm ? 1 : 0}`);
+
+export async function deleteSim(id: number): Promise<void> {
+  const r = await fetch(`/api/sim/${id}`, { method: 'DELETE' });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+}
+
 /** ISO 时间 → 北京时间（UTC+8 固定偏移）'YYYY-MM-DD HH:MM'。 */
 export const fmtTs = (s: string | null): string => {
   if (!s) return '-';

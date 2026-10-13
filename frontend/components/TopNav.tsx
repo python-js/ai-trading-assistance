@@ -10,6 +10,7 @@ const ITEMS = [
   { key: '/symbols', label: '自选池' },
   { key: '/knowledge', label: '知识库' },
   { key: '/strategy', label: '策略' },
+  { key: '/sim', label: '模拟盘' },
 ];
 
 export default function TopNav() {

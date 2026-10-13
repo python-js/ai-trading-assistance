@@ -17,9 +17,10 @@ from pydantic import BaseModel
 from app.adapters.llm import gateway
 from app.adapters.market.ccxt_okx import OKXAdapter
 from app.core.config import settings
-from app.engine import backtest_event, ledger, rag, report, replay, rule_gen
+from app.engine import backtest_event, ledger, rag, report, replay, rule_gen, sim
 from app.engine.indicators import enrich
-from app.engine.scanner import HISTORY_MIN_BARS, ensure_rules, last_closed_ms
+from app.engine.scanner import (HISTORY_MIN_BARS, ensure_rules, last_closed_ms,
+                                rule_templates)
 from app.models import db
 
 router = APIRouter(prefix="/api")
@@ -396,3 +397,203 @@ def backtest_rule(rid: int, days: int = Query(120, ge=5, le=730), conn=Depends(g
                        "timeframe": r["timeframe"], "days": days,
                        "metrics": res["metrics"], "n_events": res["n_events"],
                        "trades": trades, "open_pos": open_pos})
+
+
+# ---------- 模拟盘（A6：共享资金池 · 固定比例复利 · 止损线/到期冻结） ----------
+
+class SimUnitIn(BaseModel):
+    symbol: str
+    timeframe: str
+    rule_id: int | None = None  # 选填：绑定现有规则（登记时快照 DSL）；缺省用 sma_520 模板
+
+
+class SimIn(BaseModel):
+    name: str
+    init_cash: float
+    size_pct: float = 30.0       # 每笔用当前权益的 %（复利）
+    stop_loss_pct: float = 50.0  # 权益回撤止损线 %；0=关闭
+    start_days_ago: int = 0      # 0=从创建时刻起跟随；>0=过去起点（立即回放出完整结果）
+    duration_days: int | None = None  # 从创建时刻起 N 天后到期；None=不限
+    units: list[SimUnitIn]
+
+
+def _default_dsl(tf: str, sym: str):
+    tpl = {t: (e, x, cd) for t, e, x, cd in rule_templates((tf,))}
+    if tf not in tpl:
+        raise HTTPException(422, f"周期 {tf} 无默认策略模板")
+    e, x, cd = tpl[tf]
+    name = f"sma_520_{tf}"
+    return name, {"name": name, "symbol": sym, "timeframe": tf,
+                  "entry": e, "exit": x, "cooldown_bars": cd}
+
+
+def _pick_strategy(conn, sym: str, tf: str, rule_id: int | None):
+    """策略快照：rule_id → 规则库存量 DSL；缺省 → sma_520 模板。返回 (name, dsl)。"""
+    if rule_id is None:
+        return _default_dsl(tf, sym)
+    r = db.get_rule(conn, rule_id)
+    if not r:
+        raise HTTPException(404, f"规则不存在: {rule_id}")
+    if r["symbol"] != sym or r["timeframe"] != tf:
+        raise HTTPException(422, f"规则 {r['name']} 属 {r['symbol']} {r['timeframe']}，与单元 {sym} {tf} 不符")
+    return r["name"], r["dsl_json"]
+
+
+def _sim_acct(conn, aid: int) -> dict:
+    """组装重放入参；不存在抛 404。"""
+    a = db.get_sim_account(conn, aid)
+    if not a:
+        raise HTTPException(404, f"模拟盘不存在: {aid}")
+    units = a.pop("units_json")
+    by_unit: dict[int, list] = {}
+    for c in db.load_sim_changes(conn, aid):
+        by_unit.setdefault(c["unit_idx"], []).append(c)
+    for i, u in enumerate(units):
+        u["changes"] = by_unit.get(i, [])
+    return {**a, "units": units}
+
+
+@router.post("/sim", status_code=201)
+def create_sim(body: SimIn, conn=Depends(get_conn)):
+    """创建一个模拟盘：登记标的/周期与初始策略快照（同一市场、共享一份资金池）。"""
+    name = body.name.strip()
+    if not name or len(name) > 50:
+        raise HTTPException(422, "name 非空且 ≤50 字")
+    if body.init_cash <= 0:
+        raise HTTPException(422, "init_cash 须 > 0")
+    if not 0 < body.size_pct <= 100:
+        raise HTTPException(422, "size_pct ∈ (0,100]")
+    if not 0 <= body.stop_loss_pct < 100:
+        raise HTTPException(422, "stop_loss_pct ∈ [0,100)：0=关闭止损线")
+    if not body.units:
+        raise HTTPException(422, "units 非空（至少 1 个标的）")
+    if not 0 <= body.start_days_ago <= 730:
+        raise HTTPException(422, "start_days_ago ∈ [0,730]")
+    if body.duration_days is not None and not 0 < body.duration_days <= 730:
+        raise HTTPException(422, "duration_days ∈ (0,730]")
+    units, markets, seen = [], set(), set()
+    for u in body.units:
+        sym, tf = u.symbol.strip(), u.timeframe.strip()
+        if (sym, tf) in seen:
+            raise HTTPException(422, f"标的重复: {sym} {tf}")
+        seen.add((sym, tf))
+        meta = _rows(conn, """SELECT exchange, contract_type FROM ohlcv
+                              WHERE symbol=%s AND timeframe=%s LIMIT 1""", [sym, tf])
+        if not meta:
+            raise HTTPException(404, f"无数据: {sym} {tf}")
+        ex, ct = meta[0]["exchange"], meta[0]["contract_type"]
+        markets.add("cn" if ex == "akshare" else "crypto")
+        sname, dsl = _pick_strategy(conn, sym, tf, u.rule_id)
+        units.append({"symbol": sym, "exchange": ex, "contract_type": ct,
+                      "timeframe": tf, "_name": sname, "_dsl": dsl})
+    if len(markets) > 1:
+        raise HTTPException(422, "同一模拟盘的标的须属同一市场（币圈 USDT 与 A股 CNY 不可混）")
+    market = markets.pop()
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=body.start_days_ago)
+    end_ts = now + timedelta(days=body.duration_days) if body.duration_days else None
+    aid = db.insert_sim_account(
+        conn, name=name, market=market, init_cash=body.init_cash,
+        size_pct=body.size_pct, stop_loss_pct=body.stop_loss_pct,
+        start_ts=start, end_ts=end_ts,
+        units=[{k: v for k, v in u.items() if not k.startswith("_")} for u in units])
+    for i, u in enumerate(units):
+        db.insert_sim_change(conn, account_id=aid, unit_idx=i, effective_from=start,
+                             name=u["_name"], dsl=u["_dsl"])
+    return {"id": aid, "name": name, "market": market,
+            "start_ts": start.isoformat(),
+            "end_ts": end_ts.isoformat() if end_ts else None,
+            "units": [{"symbol": u["symbol"], "timeframe": u["timeframe"],
+                       "strategy": u["_name"]} for u in units]}
+
+
+@router.get("/sim")
+def list_sim(conn=Depends(get_conn)):
+    out = []
+    for r in db.list_sim_accounts(conn):
+        units = r.pop("units_json")
+        out.append({**r, "units": units})
+    return _json_safe(out)
+
+
+@router.get("/sim/{aid}")
+def get_sim(aid: int, conn=Depends(get_conn)):
+    """按需重放（确定性）：打开页面即从起点重算到 min(现在, 到期)，无常驻任务。"""
+    acct = _sim_acct(conn, aid)
+    res = sim.run_account(conn, acct)
+    return _json_safe({
+        "id": aid, "name": acct["name"], "market": acct["market"],
+        "init_cash": acct["init_cash"], "size_pct": acct["size_pct"],
+        "stop_loss_pct": acct["stop_loss_pct"], "start_ts": acct["start_ts"],
+        "end_ts": acct["end_ts"], "db_status": acct["status"],
+        "units": [{"symbol": u["symbol"], "timeframe": u["timeframe"],
+                   "changes": [{"effective_from": c["effective_from"],
+                                "name": c["name"]} for c in u["changes"]]}
+                  for u in acct["units"]],
+        "result": res})
+
+
+class SimChangeIn(BaseModel):
+    unit_idx: int
+    rule_id: int | None = None
+    text: str | None = None  # 中文想法（与策略页同链路 LLM 生成）
+
+
+@router.post("/sim/{aid}/change")
+def change_sim_strategy(aid: int, body: SimChangeIn, conn=Depends(get_conn)):
+    """调整策略：快照留痕，从下一根 bar 起生效（重放按时间线分段）。"""
+    a = db.get_sim_account(conn, aid)
+    if not a:
+        raise HTTPException(404, f"模拟盘不存在: {aid}")
+    if a["status"] == "finished":
+        raise HTTPException(422, "已结束的模拟盘不能再调整策略")
+    units = a["units_json"]
+    if not 0 <= body.unit_idx < len(units):
+        raise HTTPException(422, f"unit_idx ∈ [0,{len(units) - 1}]")
+    text = (body.text or "").strip()
+    if (body.rule_id is None) == (not text):
+        raise HTTPException(422, "rule_id 与 text 二选一")
+    u = units[body.unit_idx]
+    if body.rule_id is not None:
+        sname, dsl = _pick_strategy(conn, u["symbol"], u["timeframe"], body.rule_id)
+    else:
+        if len(text) > 500:
+            raise HTTPException(422, "text ≤500 字")
+        try:
+            gen = rule_gen.generate(text, u["symbol"], u["timeframe"])
+        except rule_gen.RuleGenError as e:
+            raise HTTPException(422, f"策略生成未通过校验（已重试一次）：{e}")
+        except gateway.LlmError as e:
+            raise HTTPException(503, f"LLM 不可用：{e}")
+        sname = f"gen_{int(time.time() * 1000)}"
+        dsl = {"name": sname, "symbol": u["symbol"], "timeframe": u["timeframe"], **gen}
+    db.insert_sim_change(conn, account_id=aid, unit_idx=body.unit_idx,
+                         effective_from=datetime.now(timezone.utc), name=sname, dsl=dsl)
+    return {"ok": True, "unit_idx": body.unit_idx, "name": sname}
+
+
+@router.post("/sim/{aid}/finish")
+def finish_sim(aid: int, conn=Depends(get_conn)):
+    if not db.finish_sim_account(conn, aid, datetime.now(timezone.utc)):
+        raise HTTPException(404, f"模拟盘不存在: {aid}")
+    return {"ok": True}
+
+
+@router.delete("/sim/{aid}")
+def remove_sim(aid: int, conn=Depends(get_conn)):
+    if not db.delete_sim_account(conn, aid):
+        raise HTTPException(404, f"模拟盘不存在: {aid}")
+    return {"ok": True}
+
+
+@router.post("/sim/{aid}/review")
+def review_sim(aid: int, llm: bool = True, conn=Depends(get_conn)):
+    """复盘报告：确定性统计 + 归因要点（+ LLM 改进建议，可关；LLM 失败自动降级）。"""
+    acct = _sim_acct(conn, aid)
+    res = sim.run_account(conn, acct)
+    rev = sim.review_stats(res, acct)
+    text, err = sim.llm_review(rev, acct, res) if llm else (None, "已按请求关闭")
+    return _json_safe({"status": res["status"], "end_reason": res["end_reason"],
+                       "stats": rev["overall"], "by_unit": rev["by_unit"],
+                       "by_segment": rev["by_segment"], "notes": rev["notes"],
+                       "llm": {"text": text, "ok": text is not None, "error": err}})

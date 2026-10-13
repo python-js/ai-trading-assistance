@@ -395,3 +395,78 @@ def search_knowledge(conn, embedding: list[float], limit: int = 3) -> list[dict]
         rows = cur.fetchall()
     return [{"id": r[0], "source_type": r[1], "text": r[2], "meta": r[3],
              "dist": float(r[4])} for r in rows]
+
+
+# ---------- 模拟盘（A6） ----------
+
+def insert_sim_account(conn, *, name: str, market: str, init_cash: float, size_pct: float,
+                       stop_loss_pct: float, start_ts, end_ts, units: list[dict]) -> int:
+    with conn.cursor() as cur:
+        cur.execute("""INSERT INTO sim_account (name, market, init_cash, size_pct,
+                       stop_loss_pct, start_ts, end_ts, units_json)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (name, market, init_cash, size_pct, stop_loss_pct, start_ts, end_ts,
+                     Jsonb(units)))
+        aid = cur.fetchone()[0]
+    conn.commit()
+    return aid
+
+
+def insert_sim_change(conn, *, account_id: int, unit_idx: int, effective_from,
+                      name: str, dsl: dict) -> int:
+    with conn.cursor() as cur:
+        cur.execute("""INSERT INTO sim_change (account_id, unit_idx, effective_from, name, dsl_json)
+                       VALUES (%s,%s,%s,%s,%s) RETURNING id""",
+                    (account_id, unit_idx, effective_from, name, Jsonb(dsl)))
+        cid = cur.fetchone()[0]
+    conn.commit()
+    return cid
+
+
+def list_sim_accounts(conn) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute("""SELECT id, name, market, init_cash, size_pct, stop_loss_pct,
+                       start_ts, end_ts, status, units_json, created_ts
+                       FROM sim_account ORDER BY id DESC""")
+        cols = [d.name for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def get_sim_account(conn, aid: int) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute("""SELECT id, name, market, init_cash, size_pct, stop_loss_pct,
+                       start_ts, end_ts, status, units_json, created_ts
+                       FROM sim_account WHERE id = %s""", (aid,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        cols = [d.name for d in cur.description]
+        return dict(zip(cols, row))
+
+
+def load_sim_changes(conn, aid: int) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute("""SELECT id, unit_idx, effective_from, name, dsl_json
+                       FROM sim_change WHERE account_id = %s
+                       ORDER BY unit_idx, effective_from, id""", (aid,))
+        cols = [d.name for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def finish_sim_account(conn, aid: int, end_ts) -> bool:
+    """手动结束：status=finished；计划到期更早则保留原 end_ts（等价于已到期）。"""
+    with conn.cursor() as cur:
+        cur.execute("""UPDATE sim_account SET status='finished',
+                       end_ts = LEAST(%s, COALESCE(end_ts, %s)) WHERE id=%s""",
+                    (end_ts, end_ts, aid))
+        ok = cur.rowcount > 0
+    conn.commit()
+    return ok
+
+
+def delete_sim_account(conn, aid: int) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM sim_account WHERE id = %s", (aid,))
+        n = cur.rowcount
+    conn.commit()
+    return n > 0

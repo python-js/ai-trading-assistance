@@ -10,3 +10,4 @@ data/backtest_reports/
 # 前端（Next.js）
 frontend/node_modules/
 frontend/.next/
+frontend/tsconfig.tsbuildinfo
