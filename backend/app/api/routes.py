@@ -10,6 +10,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
@@ -107,9 +108,27 @@ def signals(symbol: str | None = None, timeframe: str | None = None,
     return _rows(conn, q, params + [limit, offset])
 
 
+def _with_live_bar(df, symbol: str, timeframe: str, ct: str):
+    """展示层增强：并入 OKX 当前未收盘 bar（不入库，仅本次响应）；任何失败静默回落已收盘数据。"""
+    try:
+        ad = _adapter()
+        rows = ad.fetch_ohlcv(ad.to_ccxt_symbol(symbol, ct), timeframe, limit=2)
+        if not rows:
+            return df
+        ts_ms, o, h, l, c, v = rows[-1]
+        if ts_ms <= int(df["ts"].iloc[-1].timestamp() * 1000):
+            return df
+        live = pd.DataFrame({"ts": [pd.Timestamp(ts_ms, unit="ms", tz="UTC")],
+                             "open": [o], "high": [h], "low": [l], "close": [c],
+                             "volume": [v]})
+        return pd.concat([df, live], ignore_index=True)
+    except Exception:  # 盘中 bar 仅展示层：外呼失败不得影响已收盘数据返回
+        return df
+
+
 @router.get("/ohlcv")
 def ohlcv(symbol: str, timeframe: str = "1h", limit: int = Query(500, ge=50, le=2000),
-          conn=Depends(get_conn)):
+          live: bool = False, conn=Depends(get_conn)):
     meta = _rows(conn, """SELECT exchange, contract_type FROM ohlcv
                           WHERE symbol=%s AND timeframe=%s LIMIT 1""", [symbol, timeframe])
     if not meta:
@@ -118,6 +137,8 @@ def ohlcv(symbol: str, timeframe: str = "1h", limit: int = Query(500, ge=50, le=
     df = db.load_ohlcv(conn, symbol, ex, ct, timeframe, limit=limit)
     if df.empty:
         raise HTTPException(404, f"无数据: {symbol} {timeframe}")
+    if live and ex == "okx":
+        df = _with_live_bar(df, symbol, timeframe, ct)
     ind = enrich(df)
     ts = list(ind["ts"])
     bars = [{"time": int(t.timestamp()), "open": float(o), "high": float(h),

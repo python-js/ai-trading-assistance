@@ -2,7 +2,8 @@
 1) /api/health、/api/report（SQL 独立复算 n/胜率一致）、/api/positions（与 SQL count 一致）；
 2) /api/signals：limit 生效、pushed 计数与 push_log 一致、带 symbol/timeframe 过滤正确；
 3) /api/ohlcv：bar 数=limit、末根=库内 max(ts)、sma5/10/20 长度一致、markers 时间都在 bars 内、
-   direction ∈ {entry,exit}；坏 symbol → 404；
+   direction ∈ {entry,exit}；坏 symbol → 404；live=1 盘中 bar（若响应末根不在库 → 必须分钟对齐且不入库，
+   恰逢收盘/回落时按设计跳过）；A 股 live=1 参数忽略不报错；
 4) /api/symbols：与 rule 表 enabled 聚合一致（7 标的）；
 5) 标注回流：POST 采纳 → 201 → GET 回读 → signals 列表 annotation=采纳 → 非法 action 422、
    不存在 signal 404；测试行清理。
@@ -95,6 +96,27 @@ def main() -> None:
                        f"sma20={len(d['sma20'])} markers={len(d['signals'])}")
     r = c.get("/api/ohlcv?symbol=FAKE/USDT&timeframe=1h")
     check("ohlcv 坏标的", r.status_code == 404)
+
+    # ohlcv live=1：盘中未收盘 bar 仅附响应末尾、不入库（OKX 不可达按设计回落，结构断言仍生效）
+    r = c.get("/api/ohlcv?symbol=BTC/USDT&timeframe=1m&limit=300&live=1")
+    dl = r.json()
+    dl_times = [b["time"] for b in dl["bars"]]
+    dl_set = set(dl_times)
+    ok = (r.status_code == 200
+          and 0 < len(dl["sma20"]) <= len(dl["sma10"]) <= len(dl["sma5"]) <= len(dl["bars"])
+          and all(p["time"] in dl_set for p in dl["sma5"] + dl["sma10"] + dl["sma20"])
+          and all(m["time"] in dl_set for m in dl["signals"]))
+    lts = dl_times[-1]
+    with conn.cursor() as cur:
+        cur.execute("""SELECT count(*) FROM ohlcv WHERE symbol='BTC/USDT' AND exchange='okx'
+                       AND contract_type='spot' AND timeframe='1m' AND ts=%s""",
+                    (datetime.fromtimestamp(lts, tz=timezone.utc),))
+        in_db = cur.fetchone()[0] > 0
+    if not in_db:
+        ok = ok and lts % 60 == 0 and lts > int(max_ts.timestamp())
+    check("ohlcv live=1", ok, f"盘中bar={'有' if not in_db else '无(恰逢收盘或回落)'} 末根={lts}")
+    r = c.get("/api/ohlcv?symbol=000157.SZ&timeframe=1d&limit=300&live=1")
+    check("ohlcv live=1 A股忽略", r.status_code == 200)
 
     # symbols
     r = c.get("/api/symbols")
