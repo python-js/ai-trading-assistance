@@ -18,6 +18,9 @@ WHERE p.status = 'closed' AND p.exit_ts >= %s AND p.exit_ts < %s
 ORDER BY p.exit_ts
 """
 
+# 周期展示顺序：短→长（未列周期排最后）；by_timeframe 按此排序，前端/markdown/symbols 周期列表跟随
+TF_ORDER = {"1m": 0, "5m": 1, "15m": 2, "1h": 3, "4h": 4, "1d": 5}
+
 
 def last_week_window(now: datetime | None = None) -> tuple[datetime, datetime]:
     """上周一 00:00 ~ 本周一 00:00 北京时间（周报窗口；周一 09:00 调度运行时恰为完整上周）。"""
@@ -58,7 +61,8 @@ def build_report(conn, start: datetime, end: datetime) -> dict:
         "start": start, "end": end,
         "overall": summarize(rows),
         "by_timeframe": {tf: summarize([r for r in rows if r["timeframe"] == tf])
-                         for tf in sorted({r["timeframe"] for r in rows})},
+                         for tf in sorted({r["timeframe"] for r in rows},
+                                          key=lambda t: TF_ORDER.get(t, len(TF_ORDER)))},
         "by_symbol": {sym: summarize([r for r in rows if r["symbol"] == sym])
                       for sym in sorted({r["symbol"] for r in rows})},
     }

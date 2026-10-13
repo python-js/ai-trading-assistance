@@ -17,6 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))  # backend/
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
+from app.engine.report import TF_ORDER
 from app.main import app
 from app.models import db
 
@@ -126,6 +127,11 @@ def main() -> None:
     ok = r.status_code == 200 and len(r.json()) == n_sym \
         and all(p["last_ts"] for s in r.json() for p in s["periods"])
     check("symbols", ok, f"symbols={len(r.json())}(db {n_sym})")
+    # periods 顺序跟随报表口径（1m→5m→15m→1h→4h→1d）
+    seqs = [[p["timeframe"] for p in s["periods"]] for s in r.json()]
+    oks = all(ts == sorted(ts, key=lambda t: TF_ORDER.get(t, len(TF_ORDER))) for ts in seqs)
+    btc = next(ts for s, ts in zip(r.json(), seqs) if s["symbol"] == "BTC/USDT")
+    check("symbols 周期顺序", oks, f"BTC/USDT={btc}")
 
     # 标注回流
     with conn.cursor() as cur:

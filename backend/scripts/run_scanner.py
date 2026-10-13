@@ -1,6 +1,6 @@
 """P0-6 扫描器入口（P0-8 接入企业微信推送，P1-2 周一 01:00 UTC 周报，
 P2-4/5/6 推送含三票强度、读图第二意见与 AI 研判理由，LLM 失败自动降级纯信号版，
-A6 心跳停更/恢复经 on_alert 推送告警卡片）。用法：
+A6 心跳停更/恢复经 on_alert 推送告警卡片；5m/15m 信号免推送（仅入台账/图表））。用法：
   --once  顺序扫描全部周期一次（冒烟验证）
   无参    常驻调度（各 tf 收盘 +3s 触发；周一 01:00 UTC 台账周报；Ctrl+C 退出）
 """
@@ -18,6 +18,9 @@ from app.models import db
 
 
 def _hook(s: dict) -> None:
+    if s["timeframe"] in ("5m", "15m"):  # 5m/15m 维度仅入台账/图表，免推送（2026-10-13 定）
+        print(f"  [推送] {s['timeframe']} 免推送，跳过 signal_id={s['signal_id']}")
+        return
     if not settings.wecom_webhook and not settings.feishu_webhook:
         print("  [推送] 未配置 WECOM_WEBHOOK/FEISHU_WEBHOOK，跳过")
         return

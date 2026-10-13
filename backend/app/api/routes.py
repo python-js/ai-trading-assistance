@@ -175,12 +175,14 @@ def get_symbols(conn=Depends(get_conn)):
     for r in rows:
         pool.setdefault(r["symbol"], []).append(
             {"timeframe": r["timeframe"], "n_rules": r["n_rules"], "last_ts": r["last_ts"]})
+    for v in pool.values():  # 周期顺序跟随报表口径（1m→5m→15m→1h→4h→1d）
+        v.sort(key=lambda p: report.TF_ORDER.get(p["timeframe"], len(report.TF_ORDER)))
     return [{"symbol": k, "periods": v} for k, v in pool.items()]
 
 
 # ---------- 自助加币（P1-5） ----------
 
-ALLOWED_TFS = ("1m", "1h", "4h")
+ALLOWED_TFS = ("1m", "5m", "15m", "1h", "4h")
 
 _adapter_lock = threading.Lock()
 _adapter_cache: dict = {}
@@ -219,7 +221,7 @@ def add_symbol(body: SymbolIn, conn=Depends(get_conn)):
     sym = body.symbol.strip().upper()
     tfs = tuple(dict.fromkeys(t for t in body.timeframes if t in ALLOWED_TFS))
     if not tfs:
-        raise HTTPException(422, "timeframes 非空且 ∈ 1m/1h/4h")
+        raise HTTPException(422, "timeframes 非空且 ∈ 1m/5m/15m/1h/4h")
     ad = _adapter()
     m = ad.ex.markets.get(sym)
     if not (m and m.get("spot")):

@@ -5,7 +5,8 @@
 - 触发：仅当"刚收盘 bar"确为新 bar 时评估；停机跨多根只评估最后一根（避免补推洪峰）；
   signal 表唯一索引去重（重启安全，不重复推送）。
 - 自选池：SYMBOLS + 市值 TOP N（fetch_tickers 按 quoteVolume，启动时计算）；
-  1m 数据与规则仅核心池（= 配置的 SYMBOLS；市值 TOP 扩展仅 1h/4h），避免高请求量与推送噪音。
+  1m 数据与规则仅核心池（= 配置的 SYMBOLS；市值 TOP 扩展仅 1h/4h/5m/15m），避免高请求量与推送噪音；
+  5m/15m 全池裸交叉但免推送（仅入台账/图表/报表）。
 - 监控：心跳日志 + 停更/恢复推送告警（on_alert 钩子；状态迁移触发、发送失败下轮重试）。
 """
 from __future__ import annotations
@@ -48,6 +49,8 @@ def trigger_for(tf: str) -> CronTrigger:
     """按周期对齐到收盘 +3s（1d 用 +5s）。"""
     return {
         "1m": CronTrigger(second=3),
+        "5m": CronTrigger(minute="*/5", second=3),
+        "15m": CronTrigger(minute="*/15", second=3),
         "1h": CronTrigger(minute=0, second=3),
         "4h": CronTrigger(hour="*/4", minute=0, second=3),
         "1d": CronTrigger(hour=0, minute=0, second=5),
@@ -121,13 +124,15 @@ def rule_name(sym: str, tf: str) -> str:
 
 
 def rule_templates(tfs: tuple[str, ...]) -> list[tuple[str, dict, dict, int]]:
-    """(tf, entry, exit, cooldown) 模板：4h 裸交叉 / 1h RSI 过滤+chandelier / 1m 裸交叉 / 1d 裸交叉。"""
+    """(tf, entry, exit, cooldown) 模板：4h/1m/5m/15m/1d 裸交叉 / 1h RSI 过滤+chandelier。"""
     cross = {"cross_up": ["sma5", "sma20"]}
     cross_dn = {"cross_down": ["sma5", "sma20"]}
     tpl = {"4h": (cross, cross_dn, 2),
            "1h": ({"all": [cross, {"rsi14": {"<": 70}}]},
                   {"any": [cross_dn, {"chandelier_exit": {"atr_mult": 3}}]}, 6),
            "1m": (cross, cross_dn, 30),
+           "5m": (cross, cross_dn, 12),
+           "15m": (cross, cross_dn, 8),
            "1d": (cross, cross_dn, 2)}
     return [(tf, *tpl[tf]) for tf in tfs]
 
@@ -143,9 +148,9 @@ def ensure_rules(conn, sym: str, tfs: tuple[str, ...], *,
 
 
 def seed_rules(conn, pool: list[str], core: tuple[str, ...] = CORE) -> None:
-    """4h 主信号 + 1h 组合（RSI 过滤 + chandelier 出场）覆盖全池；1m 仅核心池。"""
+    """4h/1h 覆盖全池；5m/15m 全池裸交叉（仅入台账/图表/报表，免推送）；1m 仅核心池。"""
     for sym in pool:
-        ensure_rules(conn, sym, ("4h", "1h"))
+        ensure_rules(conn, sym, ("4h", "1h", "5m", "15m"))
     for sym in core:
         ensure_rules(conn, sym, ("1m",))
 

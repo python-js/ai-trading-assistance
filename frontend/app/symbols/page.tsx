@@ -101,7 +101,7 @@ export default function SymbolsPage() {
           notFoundContent={null}
         />
         <Checkbox.Group
-          options={['1m', '1h', '4h']}
+          options={['1m', '5m', '15m', '1h', '4h']}
           value={tfs}
           onChange={(v) => setTfs(v as string[])}
         />
