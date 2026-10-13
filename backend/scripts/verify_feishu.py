@@ -68,7 +68,7 @@ def make_signal(conn) -> dict:
                       "info": (0.7, {"n_events": 1, "top": [
                           {"title": "SEC 批准 X", "url": "https://example.com/n1"}]})},
             "chart": (0.9, {"stance": "agree", "confidence": 0.8,
-                            "reason": "EMA20 上穿 EMA60", "model": "mock"}),
+                            "reason": "MA5 上穿 MA20", "model": "mock"}),
             "reason": "技术面偏强，注意量能。"}
 
 
@@ -92,7 +92,7 @@ def main() -> None:
     assert p["card"]["header"]["title"]["content"] == "买入信号 BTC/USDT 1h"
     body = p["card"]["elements"][0]["text"]["content"]
     for frag in ("**规则**", "**三票**：技术 0.75 · 资金面 0.62 · 信息 0.70",
-                 "**读图**：赞同 0.90 · EMA20", "**溯源**：[SEC 批准 X](https://example.com/n1)",
+                 "**读图**：赞同 0.90 · MA5", "**溯源**：[SEC 批准 X](https://example.com/n1)",
                  "**AI 研判**：技术面偏强", "非投资建议"):
         assert frag in body, f"缺 {frag}: {body}"
     assert last_log(conn)[0] == "sent"

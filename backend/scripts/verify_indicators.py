@@ -1,5 +1,6 @@
-"""P0-3 指标验证：ta 库结果 vs 手写标准公式（EMA=ewm；RSI/ATR=Wilder RMA，即 TradingView 口径）。
-量化差异，判断是否需要对齐看盘软件口径。
+"""P0-3 指标验证：ta 库结果 vs 手写标准公式（SMA=rolling mean；EMA=ewm；
+RSI/ATR=Wilder RMA，即 TradingView 口径）。生产口径为 sma5/10/20（对齐 OKX MA），
+EMA 经研究层参数 emas 覆盖。量化差异，判断是否需要对齐看盘软件口径。
 用法：.venv/Scripts/python.exe backend/scripts/verify_indicators.py
 """
 import pathlib
@@ -12,6 +13,10 @@ import pandas as pd
 from app.core.config import settings
 from app.engine.indicators import enrich
 from app.models import db
+
+
+def sma_std(close: pd.Series, n: int) -> pd.Series:
+    return close.rolling(n).mean()
 
 
 def ema_std(close: pd.Series, n: int) -> pd.Series:
@@ -58,19 +63,24 @@ def main() -> None:
     conn.close()
     print(f"样本: BTC/USDT 1h 共 {len(df)} 根 | {df.ts.min()} ~ {df.ts.max()}\n")
 
-    ind = enrich(df)  # 含 ema20/ema60/rsi14/atr14（ta 库）
+    ind = enrich(df)  # 生产口径：含 sma5/sma10/sma20/rsi14/atr14（ta 库）
     close, high, low = df["close"], df["high"], df["low"]
 
-    cmp("EMA20", ind["ema20"], ema_std(close, 20))
-    cmp("EMA60", ind["ema60"], ema_std(close, 60))
+    cmp("SMA5", ind["sma5"], sma_std(close, 5))
+    cmp("SMA10", ind["sma10"], sma_std(close, 10))
+    cmp("SMA20", ind["sma20"], sma_std(close, 20))
     cmp("RSI14", ind["rsi14"], rsi_wilder(close, 14))
     cmp("ATR14", ind["atr14"], atr_wilder(high, low, close, 14))
+    ind_e = enrich(df, emas=(20, 60))  # 研究层可选 EMA
+    cmp("EMA20*", ind_e["ema20"], ema_std(close, 20))
+    cmp("EMA60*", ind_e["ema60"], ema_std(close, 60))
+    print("（* 研究层 emas 参数口径，非生产默认）")
     print()
     decay("RSI14", ind["rsi14"], rsi_wilder(close, 14))
     decay("ATR14", ind["atr14"], atr_wilder(high, low, close, 14))
 
     print("\n最近 3 根（ta 口径）:")
-    print(ind[["ts", "close", "ema20", "rsi14", "atr14"]].tail(3).to_string(index=False))
+    print(ind[["ts", "close", "sma5", "sma20", "rsi14", "atr14"]].tail(3).to_string(index=False))
 
 
 if __name__ == "__main__":

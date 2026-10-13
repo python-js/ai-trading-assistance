@@ -2,7 +2,7 @@
 --out DIR 落盘 trades.csv / equity.csv / metrics.json（签发凭证，可复现）。
 
 用法：.venv/Scripts/python.exe backend/scripts/run_backtest_event.py \
-        --rule ema_2060_1m_BTC/USDT [--compare] [--out data/backtest_reports/event_xxx]
+        --rule sma_520_1m_BTC/USDT [--compare] [--out data/backtest_reports/event_xxx]
 """
 import argparse
 import csv

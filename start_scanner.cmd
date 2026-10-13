@@ -6,5 +6,7 @@ rem NOTE: keep this file ASCII-only - cmd.exe misparses UTF-8 text after chcp.
 cd /d %~dp0
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
+rem MPLBACKEND=Agg: avoid Tk backend init during chart render; Tk cleanup aborts process on exit
+set MPLBACKEND=Agg
 ".venv\Scripts\python.exe" backend\scripts\run_scanner.py > data\logs\scanner.log 2>&1
 pause

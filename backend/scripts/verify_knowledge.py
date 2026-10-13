@@ -25,12 +25,12 @@ from app.models import db
 
 FAIL: list[str] = []
 
-SIG = {"signal_id": 1, "rule": "ema_2060_rsi_1h_BTC/USDT", "symbol": "BTC/USDT",
+SIG = {"signal_id": 1, "rule": "sma_520_rsi_1h_BTC/USDT", "symbol": "BTC/USDT",
        "exchange": "okx", "contract_type": "spot", "timeframe": "1h",
        "ts": datetime(2026, 10, 12, 4, 0, tzinfo=timezone.utc), "direction": "entry",
        "price": 61000.0, "price_zone_low": 60500.0, "price_zone_high": 61500.0}
 
-KNOWN = "BTC/USDT 1h 金叉买入后追高被套过，教训：等回踩 EMA20 企稳再进，勿追第一根。"
+KNOWN = "BTC/USDT 1h 金叉买入后追高被套过，教训：等回踩 MA20 企稳再进，勿追第一根。"
 OTHER = "茅台日线放量突破买点偏晚，量价背离时应观望，避免尾盘冲动。"
 
 
@@ -72,7 +72,7 @@ def main() -> None:
         created += [id_a, id_b]
         hits = rag.recall(conn, SIG, k=2)
         check("召回 2 条", len(hits) == 2, f"n={len(hits)}")
-        check("相关条目排第一", bool(hits) and "EMA20" in hits[0] and "茅台" not in hits[0],
+        check("相关条目排第一", bool(hits) and "MA20" in hits[0] and "茅台" not in hits[0],
               (hits[0] if hits else "")[:40])
         with conn.cursor() as cur:
             cur.execute("SELECT embedding IS NOT NULL FROM knowledge_chunk WHERE id = %s", (id_a,))
@@ -91,7 +91,7 @@ def main() -> None:
         explain.build_reason(SIG)
     with_kn = calls[0][1]["content"]
     without = calls[1][1]["content"]
-    check("含历史研判参考段与原文", "历史研判参考" in with_kn and "EMA20" in with_kn,
+    check("含历史研判参考段与原文", "历史研判参考" in with_kn and "MA20" in with_kn,
           with_kn.splitlines()[-1][:50])
     check("无知识时不含该段", "历史研判参考" not in without)
 

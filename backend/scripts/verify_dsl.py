@@ -1,7 +1,7 @@
 """P0-4 验证：规则 DSL 能否在历史数据上复现指定买卖点（独立参考实现比对）。
 
-1) ema_cross：状态机 vs 向量化交叉掩码，逐事件严格比对（强校验）
-2) ema_cross + RSI 过滤 + chandelier 出场 + cooldown=6：逐事件条件/冷却复核
+1) sma_cross（MA5×MA20）：状态机 vs 向量化交叉掩码，逐事件严格比对（强校验）
+2) sma_cross + RSI 过滤 + chandelier 出场 + cooldown=6：逐事件条件/冷却复核
 3) breakout_20（唐奇安突破）：首个入场点对齐 + 逐事件必要条件
 4) 解析器非法输入报错用例
 用法：.venv/Scripts/python.exe backend/scripts/verify_dsl.py
@@ -18,14 +18,14 @@ from app.models import db
 
 RULES_RAW = [
     {
-        "name": "ema_cross", "symbol": "BTC/USDT", "timeframe": "1h",
-        "entry": {"cross_up": ["ema20", "ema60"]},
-        "exit": {"cross_down": ["ema20", "ema60"]},
+        "name": "sma_cross", "symbol": "BTC/USDT", "timeframe": "1h",
+        "entry": {"cross_up": ["sma5", "sma20"]},
+        "exit": {"cross_down": ["sma5", "sma20"]},
     },
     {
-        "name": "ema_cross_rsi_flt", "symbol": "BTC/USDT", "timeframe": "1h",
-        "entry": {"all": [{"cross_up": ["ema20", "ema60"]}, {"rsi14": {"<": 70}}]},
-        "exit": {"any": [{"cross_down": ["ema20", "ema60"]},
+        "name": "sma_cross_rsi_flt", "symbol": "BTC/USDT", "timeframe": "1h",
+        "entry": {"all": [{"cross_up": ["sma5", "sma20"]}, {"rsi14": {"<": 70}}]},
+        "exit": {"any": [{"cross_down": ["sma5", "sma20"]},
                          {"chandelier_exit": {"atr_mult": 3}}]},
         "cooldown_bars": 6,
     },
@@ -38,12 +38,12 @@ RULES_RAW = [
 
 BAD_RAW = [
     ("算子拼写错误", {"name": "x", "symbol": "BTC/USDT", "timeframe": "1h",
-                  "entry": {"rsi14": {"=<": 70}}, "exit": {"cross_down": ["ema20", "ema60"]}}),
+                  "entry": {"rsi14": {"=<": 70}}, "exit": {"cross_down": ["sma5", "sma20"]}}),
     ("entry 使用 chandelier", {"name": "x", "symbol": "BTC/USDT", "timeframe": "1h",
                             "entry": {"chandelier_exit": {"atr_mult": 3}},
-                            "exit": {"cross_down": ["ema20", "ema60"]}}),
+                            "exit": {"cross_down": ["sma5", "sma20"]}}),
     ("叶子缺比较值", {"name": "x", "symbol": "BTC/USDT", "timeframe": "1h",
-                 "entry": {"rsi14": 70}, "exit": {"cross_down": ["ema20", "ema60"]}}),
+                 "entry": {"rsi14": 70}, "exit": {"cross_down": ["sma5", "sma20"]}}),
     ("缺 exit 字段", {"name": "x", "symbol": "BTC/USDT", "timeframe": "1h",
                   "entry": {"rsi14": {"<": 70}}}),
 ]
@@ -68,8 +68,8 @@ def check_cross(df, rule) -> bool:
     if not events or events[0].direction != "entry":
         print("    FAIL: 首个事件应为 entry")
         return False
-    up = ((df["ema20"] > df["ema60"]) & (df["ema20"].shift() <= df["ema60"].shift())).to_numpy()
-    dn = ((df["ema20"] < df["ema60"]) & (df["ema20"].shift() >= df["ema60"].shift())).to_numpy()
+    up = ((df["sma5"] > df["sma20"]) & (df["sma5"].shift() <= df["sma20"].shift())).to_numpy()
+    dn = ((df["sma5"] < df["sma20"]) & (df["sma5"].shift() >= df["sma20"].shift())).to_numpy()
     ref = [df["ts"].iloc[i] for i in range(WARMUP_BARS, len(df)) if up[i] or dn[i]]
     ref = [t for t in ref if t >= events[0].ts]
     if [e.ts for e in events] != ref:
@@ -92,8 +92,8 @@ def check_recheck(df, rule, cooldown_expected: int) -> bool:
             print(f"    FAIL: 预热期内出现事件 @ {e.ts}")
             return False
         if e.direction == "entry":
-            cross_up = (df["ema20"].iloc[i - 1] <= df["ema60"].iloc[i - 1]
-                        and df["ema20"].iloc[i] > df["ema60"].iloc[i])
+            cross_up = (df["sma5"].iloc[i - 1] <= df["sma20"].iloc[i - 1]
+                        and df["sma5"].iloc[i] > df["sma20"].iloc[i])
             if not cross_up or not df["rsi14"].iloc[i] < 70:
                 print(f"    FAIL: entry 条件不成立 @ {e.ts}")
                 return False
@@ -102,8 +102,8 @@ def check_recheck(df, rule, cooldown_expected: int) -> bool:
                 return False
             entry_i = i
         else:
-            cross_dn = (df["ema20"].iloc[i - 1] >= df["ema60"].iloc[i - 1]
-                        and df["ema20"].iloc[i] < df["ema60"].iloc[i])
+            cross_dn = (df["sma5"].iloc[i - 1] >= df["sma20"].iloc[i - 1]
+                        and df["sma5"].iloc[i] < df["sma20"].iloc[i])
             chand = df["close"].iloc[i] < (df["high"].iloc[entry_i:i + 1].max()
                                            - 3 * df["atr14"].iloc[i])
             if not (cross_dn or chand):
@@ -143,12 +143,12 @@ def main() -> None:
 
     r1 = parse_rule(RULES_RAW[0])
     ev1 = evaluate(r1, df_btc)
-    print(f"[1] ema_cross: {fmt(ev1)}")
+    print(f"[1] sma_cross(MA5×MA20): {fmt(ev1)}")
     print("    向量化严格比对:", "PASS" if check_cross(df_btc, r1) else "FAIL")
 
     r2 = parse_rule(RULES_RAW[1])
     ev2 = evaluate(r2, df_btc)
-    print(f"[2] ema_cross+RSI过滤+chandelier+cooldown6: {fmt(ev2)}")
+    print(f"[2] sma_cross+RSI过滤+chandelier+cooldown6: {fmt(ev2)}")
     print("    逐事件条件/冷却复核:", "PASS" if check_recheck(df_btc, r2, 6) else "FAIL")
 
     r3 = parse_rule(RULES_RAW[2])

@@ -1,7 +1,7 @@
 """P1-4 API 验证（TestClient 离线，不监听端口）：
 1) /api/health、/api/report（SQL 独立复算 n/胜率一致）、/api/positions（与 SQL count 一致）；
 2) /api/signals：limit 生效、pushed 计数与 push_log 一致、带 symbol/timeframe 过滤正确；
-3) /api/ohlcv：bar 数=limit、末根=库内 max(ts)、ema 长度一致、markers 时间都在 bars 内、
+3) /api/ohlcv：bar 数=limit、末根=库内 max(ts)、sma5/10/20 长度一致、markers 时间都在 bars 内、
    direction ∈ {entry,exit}；坏 symbol → 404；
 4) /api/symbols：与 rule 表 enabled 聚合一致（7 标的）；
 5) 标注回流：POST 采纳 → 201 → GET 回读 → signals 列表 annotation=采纳 → 非法 action 422、
@@ -87,12 +87,12 @@ def main() -> None:
     bar_times = {b["time"] for b in bars}
     ok = (r.status_code == 200 and len(bars) == 300
           and bars[-1]["time"] == int(max_ts.timestamp())
-          and 0 < len(d["ema60"]) <= len(d["ema20"]) <= 300
-          and all(p["time"] in bar_times for p in d["ema20"] + d["ema60"])
+          and 0 < len(d["sma20"]) <= len(d["sma10"]) <= len(d["sma5"]) <= 300
+          and all(p["time"] in bar_times for p in d["sma5"] + d["sma10"] + d["sma20"])
           and all(m["time"] in bar_times for m in d["signals"])
           and all(m["direction"] in ("entry", "exit") for m in d["signals"]))
-    check("ohlcv", ok, f"bars={len(bars)} ema20={len(d['ema20'])} "
-                       f"ema60={len(d['ema60'])} markers={len(d['signals'])}")
+    check("ohlcv", ok, f"bars={len(bars)} sma5={len(d['sma5'])} "
+                       f"sma20={len(d['sma20'])} markers={len(d['signals'])}")
     r = c.get("/api/ohlcv?symbol=FAKE/USDT&timeframe=1h")
     check("ohlcv 坏标的", r.status_code == 404)
 

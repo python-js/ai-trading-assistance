@@ -77,8 +77,10 @@ def main() -> None:
     # ---------- ③ 信号确定性复算 ----------
     print("③ 信号复算（evaluate 全窗口 == signal 表）")
     with conn.cursor() as cur:
-        cur.execute("""SELECT rule_id, symbol, ts, direction FROM signal
-                       WHERE exchange='akshare' ORDER BY id""")
+        # 仅启用规则口径（停用的历史规则信号不参与复算对照）
+        cur.execute("""SELECT s.rule_id, s.symbol, s.ts, s.direction FROM signal s
+                       JOIN rule r ON r.id = s.rule_id
+                       WHERE s.exchange='akshare' AND r.enabled ORDER BY s.id""")
         stored = {(r[0], r[1], int(r[2].timestamp() * 1000), r[3]) for r in cur.fetchall()}
     computed: set = set()
     rules = [r for r in db.load_enabled_rules(conn) if r["exchange"] == "akshare"]
@@ -141,7 +143,7 @@ def main() -> None:
     r = c.get("/api/ohlcv", params={"symbol": "000157.SZ", "timeframe": "1d"})
     j = r.json() if r.status_code == 200 else {}
     check("/api/ohlcv 000157.SZ 1d", r.status_code == 200 and len(j.get("bars", [])) >= 250
-          and len(j.get("ema20", [])) > 0 and len(j.get("ema60", [])) > 0,
+          and len(j.get("sma5", [])) > 0 and len(j.get("sma20", [])) > 0,
           f"bars={len(j.get('bars', []))}")
     with conn.cursor() as cur:
         cur.execute("""SELECT count(*) FROM signal WHERE exchange='akshare' AND symbol='600199.SH'""")

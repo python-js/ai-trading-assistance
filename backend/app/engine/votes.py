@@ -6,7 +6,7 @@
 - 启发式基线 v1（0.5=中性，±调整见常量）；evidence_json 留全量特征供审计与迭代。
 
 票语义（strength ∈ [0,1]，对"信号方向"的支持度）：
-- tech：价格与 ema60 同侧(+0.2)、RSI 有利区(+0.15)/过狂热(-0.2)、量比≥1.2(+0.15)/<0.8(-0.1)
+- tech：价格与 sma20 同侧(+0.2)、RSI 有利区(+0.15)/过狂热(-0.2)、量比≥1.2(+0.15)/<0.8(-0.1)
 - flow：funding 反向持仓拥挤（-fr 支持多头 / +fr 支持空头，|0.05%/8h| 为满档 ±0.3）；
         OI 24h 变化 |5%| 满档 ±0.2（新仓进场增强 / 平仓退潮减弱，方向无关）
 - info：72h 窗口事件按 24h 半衰期加权平均 sent*mag*conf（∈[-1,1]），±0.5 映射为支持度
@@ -40,14 +40,14 @@ def tech_vote(ind: pd.DataFrame, ts, direction: str) -> tuple[float | None, dict
     i = pos[-1]
     r = ind.loc[i]
     sgn = _sgn(direction)
-    close, ema20, ema60 = float(r["close"]), float(r["ema20"]), float(r["ema60"])
+    close, sma5, sma20 = float(r["close"]), float(r["sma5"]), float(r["sma20"])
     rsi = float(r["rsi14"])
     vm = ind["volume"].iloc[max(0, i - 19): i + 1]
     vol_ratio = float(r["volume"]) / float(vm.mean()) if vm.mean() else 0.0
     atr_pct = float(r["atr14"]) / close if close else 0.0
 
     score = 0.5
-    if sgn * (close - ema60) > 0:
+    if sgn * (close - sma20) > 0:
         score += 0.2
     if sgn > 0:  # 多头区
         if 40 <= rsi <= 70:
@@ -67,8 +67,8 @@ def tech_vote(ind: pd.DataFrame, ts, direction: str) -> tuple[float | None, dict
         score += 0.15
     elif vol_ratio < 0.8:
         score -= 0.1
-    evidence = {"close": close, "ema20": ema20, "ema60": ema60,
-                "ema_spread_pct": round((ema20 - ema60) / ema60 * 100, 4) if ema60 else None,
+    evidence = {"close": close, "sma5": sma5, "sma20": sma20,
+                "ma_spread_pct": round((sma5 - sma20) / sma20 * 100, 4) if sma20 else None,
                 "rsi14": round(rsi, 2), "vol_ratio": round(vol_ratio, 3),
                 "atr_pct": round(atr_pct, 5)}
     return round(_clamp(score, 0.0, 1.0), 4), evidence

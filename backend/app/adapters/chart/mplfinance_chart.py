@@ -1,10 +1,10 @@
-"""P0-7 K 线截图（mplfinance）：蜡烛 + EMA 叠加 + 买卖点标注。
+"""P0-7 K 线截图（mplfinance）：蜡烛 + MA 叠加 + 买卖点标注。
 
-约定：df 须先经 engine.indicators.enrich（含 ema20/ema60）；events 为
+约定：df 须先经 engine.indicators.enrich（含 sma5/sma10/sma20）；events 为
 [{ts, direction(entry/exit), price, price_zone_low?, price_zone_high?}]。
 只画尾部 bars 根；价格区间虚线仅画最后一个带区间的事件。
 时间轴显示北京时间（UTC+8）；事件 ts 匹配仍按库内 UTC。
-标题附第二行线色说明（黄=EMA20/蓝=EMA60）；价格轴小数位按 exchange 自适应
+标题附第二行线色说明（橙=MA5/紫=MA10/蓝=MA20）；价格轴小数位按 exchange 自适应
 （虚拟币≥4 位、A 股 2 位，见 core.fmt）。
 """
 import pathlib
@@ -33,8 +33,9 @@ def render(df: pd.DataFrame, events: list[dict], out_path: str, *,
     ohlc = pd.DataFrame({"Open": win["open"].values, "High": win["high"].values,
                          "Low": win["low"].values, "Close": win["close"].values,
                          "Volume": win["volume"].values}, index=idx)
-    apds = [mpf.make_addplot(pd.Series(win["ema20"].values, index=idx), color="#f39c12", width=0.9),
-            mpf.make_addplot(pd.Series(win["ema60"].values, index=idx), color="#2980b9", width=0.9)]
+    apds = [mpf.make_addplot(pd.Series(win["sma20"].values, index=idx), color="#2f80ed", width=0.9),
+            mpf.make_addplot(pd.Series(win["sma10"].values, index=idx), color="#eb2f96", width=0.9),
+            mpf.make_addplot(pd.Series(win["sma5"].values, index=idx), color="#f5a623", width=0.9)]
 
     pad = float(win["high"].max() - win["low"].min()) * 0.03
     ent = pd.Series(float("nan"), index=idx, dtype=float)
@@ -67,7 +68,7 @@ def render(df: pd.DataFrame, events: list[dict], out_path: str, *,
     pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     dec = price_decimals(float(win["close"].iloc[-1]), exchange)
     fig, _ = mpf.plot(ohlc, type="candle", style=_STYLE, addplot=apds, volume=True, figsize=(12, 7),
-                      title=f"{title}\n黄线=EMA20 · 蓝线=EMA60", returnfig=True)
+                      title=f"{title}\n橙线=MA5 · 紫线=MA10 · 蓝线=MA20", returnfig=True)
     for ax in fig.axes:  # 价格轴按币种小数位（twinx 轴 ylabel 为空，仅命中主价格轴）
         if ax.get_ylabel().startswith("Price"):
             ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:.{dec}f}"))

@@ -75,20 +75,27 @@ export default function ChartPage() {
         close: b.close,
       }))
     );
-    const ema20 = chart.addLineSeries({
-      color: '#f5a623',
-      lineWidth: 1,
-      priceLineVisible: false,
-      priceFormat,
-    });
-    ema20.setData(data.ema20.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-    const ema60 = chart.addLineSeries({
+    const sma20 = chart.addLineSeries({
       color: '#2f80ed',
       lineWidth: 1,
       priceLineVisible: false,
       priceFormat,
     });
-    ema60.setData(data.ema60.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    sma20.setData(data.sma20.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    const sma10 = chart.addLineSeries({
+      color: '#eb2f96',
+      lineWidth: 1,
+      priceLineVisible: false,
+      priceFormat,
+    });
+    sma10.setData(data.sma10.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    const sma5 = chart.addLineSeries({
+      color: '#f5a623',
+      lineWidth: 1,
+      priceLineVisible: false,
+      priceFormat,
+    });
+    sma5.setData(data.sma5.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
     candles.setMarkers(
       [...data.signals]
         .sort((a, b) => a.time - b.time)
@@ -123,28 +130,25 @@ export default function ChartPage() {
     <Spin spinning={loading}>
       <Card title="K线" extra={<PoolSelect onChange={(symbol, timeframe) => setKey({ symbol, timeframe })} />}>
         <div style={{ marginBottom: 6, fontSize: 12, color: '#666' }}>
-          <span
-            style={{
-              display: 'inline-block',
-              width: 20,
-              height: 3,
-              background: '#f5a623',
-              verticalAlign: 'middle',
-              marginRight: 4,
-            }}
-          />
-          EMA20
-          <span
-            style={{
-              display: 'inline-block',
-              width: 20,
-              height: 3,
-              background: '#2f80ed',
-              verticalAlign: 'middle',
-              margin: '0 4px 0 20px',
-            }}
-          />
-          EMA60
+          {[
+            { label: 'MA5', color: '#f5a623' },
+            { label: 'MA10', color: '#eb2f96' },
+            { label: 'MA20', color: '#2f80ed' },
+          ].map((m) => (
+            <span key={m.label} style={{ marginRight: 20 }}>
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 20,
+                  height: 3,
+                  background: m.color,
+                  verticalAlign: 'middle',
+                  marginRight: 4,
+                }}
+              />
+              {m.label}
+            </span>
+          ))}
         </div>
         <div ref={elRef} style={{ width: '100%' }} />
       </Card>

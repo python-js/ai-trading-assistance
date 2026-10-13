@@ -20,7 +20,7 @@ from app.engine import explain
 
 FAIL: list[str] = []
 
-SIG = {"signal_id": 1, "rule": "ema_2060_rsi_1h_BTC/USDT", "symbol": "BTC/USDT",
+SIG = {"signal_id": 1, "rule": "sma_520_rsi_1h_BTC/USDT", "symbol": "BTC/USDT",
        "exchange": "okx", "contract_type": "spot", "timeframe": "1h",
        "ts": datetime(2026, 10, 12, 4, 0, tzinfo=timezone.utc), "direction": "entry",
        "price": 61000.0, "price_zone_low": 60500.0, "price_zone_high": 61500.0,
@@ -45,14 +45,14 @@ def main() -> None:
 
     def fake(task, messages, **kw):
         calls.append({"task": task, "messages": messages, "kw": kw})
-        return _resp('{"reason":"EMA20 上穿 EMA60 且量能温和放大，技术面偏强；'
+        return _resp('{"reason":"MA5 上穿 MA20 且量能温和放大，技术面偏强；'
                      '资金面 funding 微负显示多头拥挤度低。风险：量能萎缩可能假突破。"}')
 
     # ---------- ① 合法输出 ----------
     print("① mock 合法输出")
     with mock.patch.object(gateway, "complete", fake):
         reason = explain.build_reason(SIG)
-    check("返回理由文本", bool(reason and "EMA" in reason), (reason or "")[:50])
+    check("返回理由文本", bool(reason and "MA" in reason), (reason or "")[:50])
     check("task=explain 且 json_mode", calls[0]["task"] == "explain"
           and calls[0]["kw"].get("json_mode") is True)
     user = calls[0]["messages"][1]["content"]
@@ -96,10 +96,10 @@ def main() -> None:
 
     # ---------- ⑥ 卡片渲染 ----------
     print("⑥ 企业微信卡片渲染")
-    s = {**SIG, "reason": "EMA20 上穿 EMA60，量能配合，技术面偏强。"}
+    s = {**SIG, "reason": "MA5 上穿 MA20，量能配合，技术面偏强。"}
     md = render_signal_md(s)
     check("含三票强度行", "> 三票：技术 0.75 · 资金面 0.62 · 信息 —" in md)
-    check("含 AI 研判行", "> AI 研判：EMA20 上穿 EMA60" in md)
+    check("含 AI 研判行", "> AI 研判：MA5 上穿 MA20" in md)
     check("保留免责声明", "非投资建议" in md)
     s_src = {**s, "votes": {**SIG["votes"], "info": (
         0.7, {"n_events": 2, "score": 0.4,

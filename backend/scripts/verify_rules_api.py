@@ -27,13 +27,13 @@ from app.models import db
 
 FAIL: list[str] = []
 
-_VALID = ('{"entry": {"all": [{"cross_up": ["ema20","ema60"]}, {"rsi14": {"<": 70}}]}, '
-          '"exit": {"any": [{"cross_down": ["ema20","ema60"]}, '
+_VALID = ('{"entry": {"all": [{"cross_up": ["sma5","sma20"]}, {"rsi14": {"<": 70}}]}, '
+          '"exit": {"any": [{"cross_down": ["sma5","sma20"]}, '
           '{"chandelier_exit": {"atr_mult": 3}}]}, "cooldown_bars": 5}')
-_BAD_OP = ('{"entry": {"ema20": {"~": 3}}, '
-           '"exit": {"cross_down": ["ema20","ema60"]}}')
+_BAD_OP = ('{"entry": {"sma5": {"~": 3}}, '
+           '"exit": {"cross_down": ["sma5","sma20"]}}')
 _BAD_MACD = ('{"entry": {"macd": {">": 0}}, '
-             '"exit": {"cross_down": ["ema20","ema60"]}}')
+             '"exit": {"cross_down": ["sma5","sma20"]}}')
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -66,14 +66,14 @@ def main() -> None:
     rows = r.json() if r.status_code == 200 else []
     ok = r.status_code == 200 and len(rows) > 0
     check("列表 200 非空", ok, f"n={len(rows)}")
-    seed = next((x for x in rows if x["name"] == "ema_2060_rsi_1h_BTC/USDT"), None)
+    seed = next((x for x in rows if x["name"] == "sma_520_rsi_1h_BTC/USDT"), None)
     check("含种子规则且字段齐全",
           seed is not None and {"id", "enabled", "dsl_json", "timeframe"} <= set(seed or {}))
 
     # ---------- ② mock 回喂重试 ----------
     print("② draft mock 回喂重试")
     calls: list[list[dict]] = []
-    body = {"text": "EMA 金叉且 RSI 不超买时买入，死叉或吊灯止损出场，冷却 5 根",
+    body = {"text": "MA 金叉且 RSI 不超买时买入，死叉或吊灯止损出场，冷却 5 根",
             "symbol": "BTC/USDT", "timeframe": "1h"}
     with mock.patch.object(gateway, "complete", make_fake([_BAD_OP, _VALID], calls)):
         r = c.post("/api/rules/draft", json=body)
@@ -176,7 +176,7 @@ def main() -> None:
         conn, name=f"gen_test_badcol_{rid}", symbol="BTC/USDT", exchange="okx",
         contract_type="spot", timeframe="1h",
         dsl={"name": f"gen_test_badcol_{rid}", "symbol": "BTC/USDT", "timeframe": "1h",
-             "entry": {"macd": {">": 0}}, "exit": {"cross_down": ["ema20", "ema60"]},
+             "entry": {"macd": {">": 0}}, "exit": {"cross_down": ["sma5", "sma20"]},
              "cooldown_bars": 0})
     created.append(bad_id)
     r = c.post(f"/api/rules/{bad_id}/backtest?days=30")

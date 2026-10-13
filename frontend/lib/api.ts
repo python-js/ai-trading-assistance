@@ -64,8 +64,9 @@ export type AddSymbolResult = {
 
 export type Ohlcv = {
   bars: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
-  ema20: { time: number; value: number }[];
-  ema60: { time: number; value: number }[];
+  sma5: { time: number; value: number }[];
+  sma10: { time: number; value: number }[];
+  sma20: { time: number; value: number }[];
   signals: { time: number; direction: 'entry' | 'exit'; price: number; signal_id: number }[];
 };
 

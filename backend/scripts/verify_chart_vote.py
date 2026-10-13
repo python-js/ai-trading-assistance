@@ -24,7 +24,7 @@ FAIL: list[str] = []
 PNG_HEAD = b"\x89PNG\r\n\x1a\n"
 TMP = pathlib.Path("data/charts/verify_chart.png")
 
-SIG = {"signal_id": 999999, "rule": "ema_2060_rsi_1h_BTC/USDT", "symbol": "BTC/USDT",
+SIG = {"signal_id": 999999, "rule": "sma_520_rsi_1h_BTC/USDT", "symbol": "BTC/USDT",
        "exchange": "okx", "contract_type": "spot", "timeframe": "1h",
        "ts": datetime(2026, 10, 12, 4, 0, tzinfo=timezone.utc), "direction": "entry",
        "price": 61000.0, "price_zone_low": 60500.0, "price_zone_high": 61500.0,
@@ -46,7 +46,7 @@ def main() -> None:
 
     def fake(task, messages, **kw):
         calls.append({"task": task, "messages": messages, "kw": kw})
-        return _resp('{"stance":"agree","strength":0.8,"reason":"EMA20 上穿 EMA60，回踩不破，形态偏多。"}')
+        return _resp('{"stance":"agree","strength":0.8,"reason":"MA5 上穿 MA20，回踩不破，形态偏多。"}')
 
     TMP.parent.mkdir(parents=True, exist_ok=True)
     TMP.write_bytes(PNG_HEAD + b"\x00" * 64)
@@ -155,10 +155,10 @@ def main() -> None:
     # ---------- ⑦ 卡片读图行 ----------
     print("⑦ 企业微信卡片读图行")
     s = {**SIG, "chart": (0.9, {"stance": "agree", "confidence": 0.8,
-                                "reason": "EMA20 上穿 EMA60，回踩不破，形态偏多。",
+                                "reason": "MA5 上穿 MA20，回踩不破，形态偏多。",
                                 "model": "m"})}
     md = render_signal_md(s)
-    check("含读图行（赞同 0.90 + 理由摘）", "> 读图：赞同 0.90 · EMA20 上穿" in md,
+    check("含读图行（赞同 0.90 + 理由摘）", "> 读图：赞同 0.90 · MA5 上穿" in md,
           md.splitlines()[-3] if len(md.splitlines()) >= 3 else "")
     md2 = {**s, "reason": "AI 研判理由"}
     md2 = render_signal_md(md2)
@@ -173,7 +173,7 @@ def main() -> None:
         def fake_hook(task, messages, **kw):
             if task == "vision":
                 return _resp('{"stance":"agree","strength":0.8,'
-                             '"reason":"EMA20 上穿 EMA60，回踩不破。"}')
+                             '"reason":"MA5 上穿 MA20，回踩不破。"}')
             return _resp('{"reason":"技术面偏强。"}')
 
         sid = real["signal_id"]
@@ -200,7 +200,7 @@ def main() -> None:
         check("推送 2 条（markdown+image）", mpost.call_count == 2, f"calls={mpost.call_count}")
         md = mpost.call_args_list[0][0][0]["markdown"]["content"]
         check("卡片含读图行与 AI 研判行",
-              "> 读图：赞同 0.90 · EMA20 上穿" in md and "> AI 研判：技术面偏强。" in md,
+              "> 读图：赞同 0.90 · MA5 上穿" in md and "> AI 研判：技术面偏强。" in md,
               md.replace("\n", " | ")[-90:])
         with conn.cursor() as cur:
             cur.execute("SELECT status, error FROM push_log WHERE id > %s", (pl_max,))

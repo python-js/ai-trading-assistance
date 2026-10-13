@@ -25,7 +25,7 @@ def check(name: str, ok: bool, detail: str = "") -> None:
         FAIL.append(name)
 
 
-_RULE_13 = "ema_2060_1m_BTC/USDT"
+_RULE_13 = "sma_520_1m_BTC/USDT"
 
 
 def main() -> None:

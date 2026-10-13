@@ -23,7 +23,7 @@ CHART_DIR = "data/charts"
 STANCES = ("agree", "oppose", "neutral")
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$")
 
-_SYSTEM = ("你是加密交易形态分析师。请观察K线图（含 EMA20/60 均线与成交量）与给定信号，"
+_SYSTEM = ("你是加密交易形态分析师。请观察K线图（含 MA5/10/20 均线与成交量）与给定信号，"
            "独立给出第二意见。仅输出 JSON："
            '{"stance":"agree|oppose|neutral","strength":0~1,"reason":"≤80字中文"}。'
            "strength 为对所选 stance 的置信强度；reason 概述形态依据（如趋势结构、量价配合、"

@@ -83,7 +83,7 @@ export default function KnowledgePage() {
         rows={2}
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="例如：BTC 4h 突破前高后回踩 EMA20 不破，多数情况下趋势延续，可择机介入"
+        placeholder="例如：BTC 4h 突破前高后回踩 MA20 不破，多数情况下趋势延续，可择机介入"
         maxLength={2000}
         showCount
         style={{ marginBottom: 8 }}

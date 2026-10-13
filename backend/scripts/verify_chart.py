@@ -1,4 +1,4 @@
-"""P0-7 图表验证：BTC/USDT 1h 尾部窗口渲染 EMA20/60 买卖点标注。
+"""P0-7 图表验证：BTC/USDT 1h 尾部窗口渲染 MA5/10/20 三线 + 买卖点标注。
 验证点：事件 ts 与 K 线 bar 对齐（无静默丢标）、标记方向/位置正确（可视复核）。
 """
 import pathlib
@@ -12,9 +12,9 @@ from app.engine.indicators import enrich
 from app.engine.rules_dsl import evaluate, parse_rule
 from app.models import db
 
-RAW = {"name": "ema_cross", "symbol": "BTC/USDT", "timeframe": "1h",
-       "entry": {"cross_up": ["ema20", "ema60"]},
-       "exit": {"cross_down": ["ema20", "ema60"]}, "cooldown_bars": 0}
+RAW = {"name": "sma_cross", "symbol": "BTC/USDT", "timeframe": "1h",
+       "entry": {"cross_up": ["sma5", "sma20"]},
+       "exit": {"cross_down": ["sma5", "sma20"]}, "cooldown_bars": 0}
 BARS = 240
 OUT = "data/charts/verify_btc_1h.png"
 
@@ -38,7 +38,7 @@ def main() -> None:
                     "price_zone_low": e.price - 0.5 * atr, "price_zone_high": e.price + 0.5 * atr})
         print(f"  {e.ts:%m-%d %H:%M} {e.direction:5} @ {e.price:.6g}")
 
-    out = render(ind, sig, OUT, bars=BARS, title="BTC/USDT 1h  EMA20/60 买卖点（P0-7 验证）")
+    out = render(ind, sig, OUT, bars=BARS, title="BTC/USDT 1h  MA5/10/20 买卖点（P0-7 验证）")
     # 对齐断言：窗口内每个事件都能在窗口中按 ts 找到对应 bar（tz 对齐无静默丢标）
     missed = [s["ts"] for s in sig if win.index[win["ts"] == s["ts"]].empty]
     assert not missed, f"标丢失: {missed}"

@@ -1,12 +1,17 @@
 """指标计算（ta 库封装）。
 输入：含 open/high/low/close 列、按时间升序的 ohlcv DataFrame。
-输出：原地/副本追加指标列（ema{n}/rsi{n}/atr{n}），供规则 DSL 与回测使用。
+输出：原地/副本追加指标列（sma{n}/ema{n}/rsi{n}/atr{n}），供规则 DSL 与回测使用。
 选型说明：pandas-ta 仅剩 beta 且要求 Python≥3.12，改用成熟稳定的 ta(bukosabino) 库，见 docs/P0-阶段1-设计.md §6。
 """
 import pandas as pd
 from ta.momentum import RSIIndicator
-from ta.trend import EMAIndicator
+from ta.trend import EMAIndicator, SMAIndicator
 from ta.volatility import AverageTrueRange
+
+
+def add_sma(df: pd.DataFrame, window: int) -> pd.DataFrame:
+    df[f"sma{window}"] = SMAIndicator(df["close"], window=window).sma_indicator()
+    return df
 
 
 def add_ema(df: pd.DataFrame, window: int) -> pd.DataFrame:
@@ -24,9 +29,14 @@ def add_atr(df: pd.DataFrame, window: int = 14) -> pd.DataFrame:
     return df
 
 
-def enrich(df: pd.DataFrame, emas=(20, 60), rsi=14, atr=14) -> pd.DataFrame:
-    """按 ts 升序排列后一次性追加常用指标列（返回副本，不改原 df）。"""
+def enrich(df: pd.DataFrame, smas=(5, 10, 20), emas=(), rsi=14, atr=14) -> pd.DataFrame:
+    """按 ts 升序排列后一次性追加常用指标列（返回副本，不改原 df）。
+
+    smas：生产口径（规则/图表/技术票，对齐 OKX MA5/10/20）；emas：研究层可选（如 run_backtest 多周期对照）。
+    """
     out = df.sort_values("ts").reset_index(drop=True).copy()
+    for w in smas:
+        add_sma(out, w)
     for w in emas:
         add_ema(out, w)
     if rsi:

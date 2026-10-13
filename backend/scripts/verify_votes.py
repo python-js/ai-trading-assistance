@@ -56,7 +56,7 @@ def main() -> None:
     check("确定性（两算一致）", s1 is not None and s1 == s2, f"s={s1}")
     check("方向性（entry≠exit）", s_short is not None and abs(s1 - s_short) > 1e-9,
           f"entry={s1} exit={s_short}")
-    need = {"close", "ema20", "ema60", "rsi14", "vol_ratio", "atr_pct"}
+    need = {"close", "sma5", "sma20", "rsi14", "vol_ratio", "atr_pct"}
     check("证据字段齐全", need <= set(ev1), str(sorted(ev1)))
     check("strength ∈ [0,1]", 0.0 <= s1 <= 1.0 and 0.0 <= s_short <= 1.0)
 

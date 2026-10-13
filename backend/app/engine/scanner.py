@@ -117,13 +117,13 @@ def _dsl(name: str, symbol: str, tf: str, entry: dict, exit_: dict, cooldown: in
 
 
 def rule_name(sym: str, tf: str) -> str:
-    return f"ema_2060_{'rsi_' if tf == '1h' else ''}{tf}_{sym}"
+    return f"sma_520_{'rsi_' if tf == '1h' else ''}{tf}_{sym}"
 
 
 def rule_templates(tfs: tuple[str, ...]) -> list[tuple[str, dict, dict, int]]:
     """(tf, entry, exit, cooldown) 模板：4h 裸交叉 / 1h RSI 过滤+chandelier / 1m 裸交叉 / 1d 裸交叉。"""
-    cross = {"cross_up": ["ema20", "ema60"]}
-    cross_dn = {"cross_down": ["ema20", "ema60"]}
+    cross = {"cross_up": ["sma5", "sma20"]}
+    cross_dn = {"cross_down": ["sma5", "sma20"]}
     tpl = {"4h": (cross, cross_dn, 2),
            "1h": ({"all": [cross, {"rsi14": {"<": 70}}]},
                   {"any": [cross_dn, {"chandelier_exit": {"atr_mult": 3}}]}, 6),

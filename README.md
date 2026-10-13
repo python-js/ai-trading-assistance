@@ -8,7 +8,7 @@
 
 | 阶段 | 内容 |
 |---|---|
-| P0 管道 | ccxt(OKX) 增量采集、EMA/RSI/ATR 指标、规则 DSL、vectorbt 回测 + walk-forward + 11 分区报告、APScheduler 收盘扫描、K 线截图、企微推送（重试 + push_log）、模拟台账 |
+| P0 管道 | ccxt(OKX) 增量采集、SMA(MA5/10/20)/RSI/ATR 指标、规则 DSL、vectorbt 回测 + walk-forward + 11 分区报告、APScheduler 收盘扫描、K 线截图、企微推送（重试 + push_log）、模拟台账 |
 | P1 度量 | 信号确定性回放补登、纸面台账结算、周一 01:00 UTC 周报、事件驱动签发回测、FastAPI + H5 看板（标注回流）、标的搜索自助加币、A股（akshare 日线）全链路 |
 | P2 智能 | 资金面算子（funding/OI，PIT 对齐）、LLM 网关（百炼 + 回退链）、新闻 RSS → LLM 结构化事件、三票合议引擎、AI 解释文案、多模态读图票、飞书适配器、信息票 IC 独立回测 |
 | P3 知识 | 标注笔记 → 向量知识库（RAG 召回注入推送理由）、中文想法 → 规则草稿 → 沙箱回测、遗留修复（OKX 启动重试 / 回填仅已收盘） |

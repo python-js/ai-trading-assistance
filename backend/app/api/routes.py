@@ -1,7 +1,7 @@
 """P1-4 看板 REST API：台账报表 / 持仓 / 信号历史 / K线 / 自选池 / 标注回流。
 P1-5：标的搜索与自助加币（ccxt load_markets 实时搜索，入池+绑规则+回填+回放+台账重建）。
 
-只读为主（标注/加币除外）；连接为每请求短连接；K线含 ema20/ema60 与研究同源买卖点标记。
+只读为主（标注/加币除外）；连接为每请求短连接；K线含 sma5/sma10/sma20（MA5/10/20）与研究同源买卖点标记。
 """
 from __future__ import annotations
 
@@ -124,9 +124,9 @@ def ohlcv(symbol: str, timeframe: str = "1h", limit: int = Query(500, ge=50, le=
              "low": float(l), "close": float(c), "volume": float(v)}
             for t, o, h, l, c, v in zip(ts, ind["open"], ind["high"], ind["low"],
                                         ind["close"], ind["volume"])]
-    ema = {k: [{"time": int(t.timestamp()), "value": float(v)}
-               for t, v in zip(ts, ind[k]) if math.isfinite(float(v))]
-           for k in ("ema20", "ema60")}
+    ma = {k: [{"time": int(t.timestamp()), "value": float(v)}
+              for t, v in zip(ts, ind[k]) if math.isfinite(float(v))]
+          for k in ("sma5", "sma10", "sma20")}
     sigs = _rows(conn, """SELECT id, ts, direction, price_zone_low, price_zone_high
                           FROM signal
                           WHERE symbol=%s AND timeframe=%s AND exchange=%s
@@ -136,7 +136,8 @@ def ohlcv(symbol: str, timeframe: str = "1h", limit: int = Query(500, ge=50, le=
     markers = [{"time": int(s["ts"].timestamp()), "direction": s["direction"],
                 "price": (s["price_zone_low"] + s["price_zone_high"]) / 2,
                 "signal_id": s["id"]} for s in sigs]
-    return {"bars": bars, "ema20": ema["ema20"], "ema60": ema["ema60"], "signals": markers}
+    return {"bars": bars, "sma5": ma["sma5"], "sma10": ma["sma10"],
+            "sma20": ma["sma20"], "signals": markers}
 
 
 @router.get("/symbols")

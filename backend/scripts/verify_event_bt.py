@@ -54,7 +54,7 @@ def main() -> None:
     end = datetime.now(timezone.utc) - timedelta(seconds=120)  # 稳定边界
 
     # 1) 台账交叉核对
-    rule = load_rule(conn, "ema_2060_1m_BTC/USDT")
+    rule = load_rule(conn, "sma_520_1m_BTC/USDT")
     ev = backtest_event.run_rule(conn, rule, end=end)
     ledger.rebuild(conn)
     with conn.cursor() as cur:
@@ -97,7 +97,7 @@ def main() -> None:
           f"（cooldown 30 生效）；事件 {ev['metrics']['n_trades']} 笔"
           f" vs vbt {v.get('交易笔数')} 笔 {'PASS' if not FAIL else 'FAIL'}")
 
-    rule_1h = load_rule(conn, "ema_2060_rsi_1h_BTC/USDT")
+    rule_1h = load_rule(conn, "sma_520_rsi_1h_BTC/USDT")
     cmp2 = backtest_event.compare(conn, rule_1h)
     if not (cmp2["vbt"] is None and cmp2["vbt_error"] and "chandelier" in cmp2["vbt_error"]):
         FAIL.append(f"对照1h: vbt={bool(cmp2['vbt'])} err={cmp2['vbt_error']}")
@@ -108,7 +108,7 @@ def main() -> None:
     dead = {"name": "impossible", "symbol": "BTC/USDT", "exchange": "okx",
             "contract_type": "spot", "timeframe": "1h",
             "dsl_json": {"name": "impossible", "symbol": "BTC/USDT", "timeframe": "1h",
-                         "entry": {"ema20": {"<": 0}}, "exit": {"ema20": {"<": 0}},
+                         "entry": {"sma5": {"<": 0}}, "exit": {"sma5": {"<": 0}},
                          "cooldown_bars": 6}}
     ev0 = backtest_event.run_rule(conn, dead, end=end)
     m0 = ev0["metrics"]

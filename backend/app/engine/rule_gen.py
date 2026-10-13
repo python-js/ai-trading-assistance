@@ -16,7 +16,7 @@ from app.engine.rules_dsl import parse_rule
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$")
 
 # 评估时 df 可用列（indicators.enrich + flow.attach 产物；增列需同步这两处）
-COLS = {"ema20", "ema60", "rsi14", "atr14", "close", "high", "low",
+COLS = {"sma5", "sma10", "sma20", "rsi14", "atr14", "close", "high", "low",
         "funding_rate", "oi_change_24h"}
 
 _SYSTEM = (
@@ -25,10 +25,11 @@ _SYSTEM = (
     "无其他文字。\n"
     "节点语法（每层只允许一个键）：\n"
     "1. 比较 {\"指标\": {\"<\": 70}}：指标在外层、算子在里层；算子 ∈ < > <= >=；"
-    "可用指标：ema20、ema60、rsi14、atr14（绝对波幅，单位为报价货币）、close（收盘价）、"
+    "可用指标：sma5、sma10、sma20（简单移动平均，与 K 线图 MA 线同口径）、"
+    "rsi14、atr14（绝对波幅，单位为报价货币）、close（收盘价）、"
     "funding_rate（资金费率，小数）、oi_change_24h（持仓量 24h 变化率，小数）。\n"
     "2. 组合 {\"all\": [节点,...]} 全部满足；{\"any\": [节点,...]} 任一满足。\n"
-    "3. 交叉 {\"cross_up\": [\"ema20\",\"ema60\"]} 前线上穿后线；cross_down 为下穿。\n"
+    "3. 交叉 {\"cross_up\": [\"sma5\",\"sma20\"]} 前线上穿后线；cross_down 为下穿。\n"
     "4. 突破 {\"breakout_up\": 20} 收盘价上破前 20 根最高价；breakout_down 为下破最低价。\n"
     "5. 出场专用 {\"chandelier_exit\": {\"atr_mult\": 3}}（吊灯止损，只可用于 exit）。\n"
     "完整示例（想法：RSI 低于 30 买入，高于 70 卖出）："

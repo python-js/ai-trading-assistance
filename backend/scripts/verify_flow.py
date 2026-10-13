@@ -126,9 +126,9 @@ def main() -> None:
 
     # ---------- ⑤ DSL 方向性 ----------
     print("⑤ DSL 方向性（恒真/恒假资金面条件）")
-    common = {"symbol": SYM, "timeframe": "1h", "exit": {"cross_down": ["ema20", "ema60"]},
+    common = {"symbol": SYM, "timeframe": "1h", "exit": {"cross_down": ["sma5", "sma20"]},
               "cooldown_bars": 6}
-    up = {"cross_up": ["ema20", "ema60"]}
+    up = {"cross_up": ["sma5", "sma20"]}
     ev_base = evaluate(parse_rule({**common, "name": "t_base", "entry": up}), att)
     ev_false = evaluate(parse_rule({**common, "name": "t_false",
                                     "entry": {"all": [up, {"funding_rate": {"<": -1.0}}]}}), att)
