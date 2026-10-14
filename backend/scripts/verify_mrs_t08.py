@@ -110,11 +110,18 @@ def entry_sequence() -> None:
     # regime 弱趋势
     sig2, reason = eval_entry(bars=b_sup, **{**common, "adx15": 19.0})
     assert sig2 is None and reason == "REGIME", (sig2, reason)
-    # 活动区命中外但已拉黑 / 达当日触达上限
-    sig2, reason = eval_entry(bars=b_sup, **{**common, "zone_blacklist": {ZS.id}})
+    # 活动区命中外但已拉黑（§6.5 按 zone+方向）/ 达当日触达上限
+    sig2, reason = eval_entry(bars=b_sup, **{**common, "zone_blacklist": {(ZS.id, "LONG")}})
     assert sig2 is None and reason == "ZONE", (sig2, reason)
     sig2, reason = eval_entry(bars=b_sup, **{**common, "zone_touch_today": {ZS.id: 2}})
     assert sig2 is None and reason == "ZONE", (sig2, reason)
+    # §6.5 冷却：同向禁开、异向放行、到期放行（per-dir 分存）
+    sig2, reason = eval_entry(bars=b_sup, **{**common, "cooldowns": {"LONG": T0 + 999}})
+    assert sig2 is None and reason == "COOLDOWN", (sig2, reason)
+    sig2, reason = eval_entry(bars=b_sup, **{**common, "cooldowns": {"SHORT": T0 + 999}})
+    assert reason == "OK", reason
+    sig2, reason = eval_entry(bars=b_sup, **{**common, "cooldowns": {"LONG": T0 - 1}})
+    assert reason == "OK", reason
     # T2 不满足、T1 满足 → T1 信号
     b_t1 = bars((1000, 1005, 995, 1002), (1002, 1008, 990, 1004),
                 (1004, 1006, 980, 1002), (995, 1008, 983, 1005))

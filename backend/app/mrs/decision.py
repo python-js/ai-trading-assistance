@@ -353,11 +353,14 @@ def eval_entry(*, bars: list[Bar], now_ts: int, rank30: int, rank15: int, rank5:
                spread_bps: float | None, zones: list[Zone], zone_touch_today: dict,
                zone_blacklist: set, t1_used_today: set, tick: float,
                session_windows: list[str], funding_hours: list[int], blackout_min: int,
+               cooldowns: dict | None = None,
                events: list[dict] | None = None, cfg: dict = CFG) -> tuple[Signal | None, str]:
-    """§7.2 第 3-4 步纯决策（状态/冷却/挂单/持仓由 Runner 先行判断）。
+    """§7.2 第 3-4 步纯决策（挂单/持仓由 Runner 先行判断）。
 
     返回 (Signal, "OK") 或 (None, reason)；reason ∈ §8.2 漏斗枚举
-    {SESSION, EVENT, REGIME, RESON, ZONE, SPREAD, VOL, NO_TRIGGER}。
+    {SESSION, EVENT, REGIME, RESON, ZONE, COOLDOWN, SPREAD, VOL, NO_TRIGGER}。
+    zone_blacklist 元素为 (zone_id, dir)（§6.5 拉黑按 zone+方向）；zone_touch_today 按 zone 计。
+    cooldowns：§6.5 平仓 25 根同向禁开（dir→截止 ts，按方向分存；TTL 撤单为双向 5 根）。
     """
     e = cfg["entry"]
     if not in_session(now_ts, session_windows):
@@ -373,8 +376,10 @@ def eval_entry(*, bars: list[Bar], now_ts: int, rank30: int, rank15: int, rank5:
     act = pick_zone(zones, res, close, atr15, cfg)
     if act is None:
         return None, "ZONE"
-    if act.id in zone_blacklist or zone_touch_today.get(act.id, 0) >= e["max_zone_touches"]:
+    if (act.id, res) in zone_blacklist or zone_touch_today.get(act.id, 0) >= e["max_zone_touches"]:
         return None, "ZONE"
+    if now_ts < (cooldowns or {}).get(res, 0):
+        return None, "COOLDOWN"   # §7.2 门序：zone 之后、spread 之前
     passed = ["SESSION", "EVENT", "REGIME", "RESON", "ZONE"]
     if spread_bps is None:
         passed.append("SPREAD-NA")          # v1 口径 7：无盘口源放行
