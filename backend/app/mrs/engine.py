@@ -332,6 +332,7 @@ class Engine:
 
     # ---------- 状态快照（§8.5） ----------
     def persist(self) -> None:
+        """持仓字段为完整可重建集（recover.to_position 直接装配：含 qty0/legs/fees 等）。"""
         pos = self.pos
         self.ledger.dump_state({
             "ts": (self.last_ts or 0) + 60, "state": self.acct.state, "day": self.acct.day,
@@ -341,9 +342,12 @@ class Engine:
             "halt_reason": self.acct.halt_reason, "equity": self.equity,
             "cfg_hash": cfg_hash(self.cfg), "pending": self.pending_sig_id,
             "position": None if pos is None else {
-                "sig_id": pos.sig_id, "dir": pos.dir, "entry": pos.entry, "qty": pos.qty,
-                "R": pos.R, "stop": pos.stop, "tp": pos.tp, "be_done": pos.be_done,
-                "seg_done": pos.seg_done, "bars_held": pos.bars_held, "peak": pos.peak,
-                "mfe_r": pos.mfe_r, "mae_r": pos.mae_r, "funding_paid": pos.funding_paid,
-                "zone_id": pos.zone_id},
+                "sig_id": pos.sig_id, "dir": pos.dir, "open_ts": pos.open_ts,
+                "entry": pos.entry, "qty0": pos.qty0, "qty": pos.qty, "R": pos.R,
+                "stop": pos.stop, "tp": pos.tp, "seg1_px": pos.seg1_px,
+                "be_px_target": pos.be_px_target, "zone_id": pos.zone_id, "lev": pos.lev,
+                "peak": pos.peak, "be_done": pos.be_done, "seg_done": pos.seg_done,
+                "bars_held": pos.bars_held, "mfe_r": pos.mfe_r, "mae_r": pos.mae_r,
+                "funding_paid": pos.funding_paid, "fees_paid": pos.fees_paid,
+                "legs": [list(x) for x in pos.legs]},
         })

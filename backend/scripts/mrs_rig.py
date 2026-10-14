@@ -32,8 +32,8 @@ ZR = Zone(id="zr", center=1780.0, width=20.0, side="R", grade=0.5, touches=1,
 
 class Rig:
     def __init__(self, *, fail_place_stop: int = 0, on_halt=None,
-                 equity: float = 50_000.0):
-        self.led = Ledger()
+                 equity: float = 50_000.0, ledger: Ledger | None = None):
+        self.led = ledger if ledger is not None else Ledger()
         self.eng = Engine(ledger=self.led, equity=equity, on_halt=on_halt)
         self.eng.broker.fail_place_stop = fail_place_stop
         self.eng.volwin.buf.extend([50.0] * 60)  # 量分位窗口预热（min_n=40）
