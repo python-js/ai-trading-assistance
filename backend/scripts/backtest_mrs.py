@@ -4,6 +4,9 @@
 - 成本：PaperBroker 悲观内插（§9.1）+ 双边 taker 费 + 滑点（CFG venue 默认档）。
 - 窗口：--start/--end（UTC 日期）或 --days N（默认 30，锚定库内最新 ts）。
 - --out-dir PATH：§8 台账落盘（signal/trade/orders/funnel/state；M6 归档与 COST 拒绝聚合用）。
+- --set PATH=VALUE：配置覆盖（点路径，可重复；如 --set venue.taker_bps=2 得 maker 费率场景、
+  §9.5 灵敏度扰动）。值按 JSON 解析（数/布尔/列表），失败回退字符串；覆盖后 validate_cfg 强校验。
+- --dump-stats PATH：§9.5 报表数据源 JSON（窗口/cfg/cfg_hash/费用/漏斗计数/signals/trades 全量）。
 - --dump-bundles PATH：Bundle 序列 JSONL（sig_id/stop/tp/qty…，§9.4 一致性 diff 输入）。
 - --dump-fingerprint PATH：结束态全量指纹（mrs_snap.fingerprint，dual-run 对照用）。
 用法（项目根）：
@@ -13,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import pathlib
 import sys
@@ -25,7 +29,7 @@ sys.path.insert(0, str(_HERE.parent))       # scripts/（mrs_snap）
 sys.path.insert(0, str(_HERE.parents[1]))   # backend/（app.*）
 
 from app.core.config import settings  # noqa: E402
-from app.mrs.config import CFG, cfg_hash  # noqa: E402
+from app.mrs.config import CFG, cfg_hash, validate_cfg  # noqa: E402
 from app.mrs.engine import Engine  # noqa: E402
 from app.mrs.ledger import Ledger  # noqa: E402
 from app.mrs.types import Bar  # noqa: E402
@@ -39,9 +43,32 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     ap.add_argument("--end", help="窗口止（UTC，YYYY-MM-DD）")
     ap.add_argument("--days", type=int, default=30, help="无 --start/--end 时：锚定最新 ts 回溯天数")
     ap.add_argument("--out-dir", help="台账落盘目录（§8 全量：signal/trade/orders/funnel/state）")
+    ap.add_argument("--set", action="append", default=[], metavar="PATH=VALUE",
+                    help="配置覆盖（点路径，可重复），如 venue.taker_bps=2")
+    ap.add_argument("--dump-stats", help="§9.5 报表数据源 JSON 落盘路径")
     ap.add_argument("--dump-bundles", help="Bundle 序列 JSONL 落盘路径")
     ap.add_argument("--dump-fingerprint", help="结束态指纹落盘路径")
     return ap.parse_args(argv)
+
+
+def _apply_sets(cfg: dict, sets: list[str]) -> None:
+    for item in sets:
+        path, sep, raw = item.partition("=")
+        keys = path.strip().split(".")
+        node = cfg
+        for k in keys[:-1]:
+            if not isinstance(node.get(k), dict):
+                sys.exit(f"--set 路径不存在: {path}")
+            node = node[k]
+        if not sep or keys[-1] not in node:
+            sys.exit(f"--set 键不存在: {path}")
+        try:
+            val = json.loads(raw)
+        except json.JSONDecodeError:
+            val = raw
+        old = node[keys[-1]]
+        node[keys[-1]] = val
+        print(f"[覆盖] {path}: {old!r} → {val!r}")
 
 
 def _dt(s: str) -> datetime:
@@ -54,8 +81,11 @@ def _fmt(ts_s: int) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv if argv is not None else sys.argv[1:])
-    sym, ex_, ct = (CFG["symbol"]["internal"], CFG["symbol"]["exchange"],
-                    CFG["symbol"]["contract_type"])
+    cfg = copy.deepcopy(CFG)
+    _apply_sets(cfg, args.set)
+    validate_cfg(cfg)
+    sym, ex_, ct = (cfg["symbol"]["internal"], cfg["symbol"]["exchange"],
+                    cfg["symbol"]["contract_type"])
     conn = db.connect(settings.pg_dsn)
     try:
         if args.start and args.end:
@@ -86,10 +116,10 @@ def main(argv: list[str] | None = None) -> None:
                                         df["close"], df["volume"])]
     print(f"[窗口] {_fmt(ts_s[0])} → {_fmt(ts_s[-1])} UTC | {len(bars)} 根 1m | "
           f"加载 {load_s:.1f}s | funding 点 {len(fmap)}")
-    print(f"[配置] cfg_hash={cfg_hash()} | fees taker/slip = {CFG['venue']['taker_bps']}/"
-          f"{CFG['venue']['slip_base_bps']} bps")
+    print(f"[配置] cfg_hash={cfg_hash(cfg)} | fees taker/slip = {cfg['venue']['taker_bps']}/"
+          f"{cfg['venue']['slip_base_bps']} bps")
 
-    eng = Engine(ledger=Ledger(out_dir=args.out_dir), funding_fn=fmap.get)
+    eng = Engine(cfg=cfg, ledger=Ledger(out_dir=args.out_dir), funding_fn=fmap.get)
     t0 = time.time()
     for b in bars:
         eng.on_1m_close(b)
@@ -111,8 +141,8 @@ def main(argv: list[str] | None = None) -> None:
         print("[离场] " + " ".join(f"{k}={v}" for k, v in reasons.most_common())
               + f" | 胜率 {sum(x > 0 for x in rs) / len(rs) * 100:.1f}%"
               + f" | ΣR={sum(rs):+.2f} | PF={pf:.2f}")
-    print(f"[权益] {CFG['account']['init_equity']:.2f} → {eng.equity:.2f}"
-          f"（Δ{eng.equity - CFG['account']['init_equity']:+.2f}）| 末态 {eng.acct.state}"
+    print(f"[权益] {cfg['account']['init_equity']:.2f} → {eng.equity:.2f}"
+          f"（Δ{eng.equity - cfg['account']['init_equity']:+.2f}）| 末态 {eng.acct.state}"
           f" | funding_imputed={eng.funding_imputed}")
     print(f"[耗时] 决策 {run_s:.1f}s（{len(bars) / max(run_s, 1e-9):.0f} bar/s）")
 
@@ -129,6 +159,23 @@ def main(argv: list[str] | None = None) -> None:
     if args.dump_fingerprint:
         pathlib.Path(args.dump_fingerprint).write_text(fingerprint(eng), encoding="utf-8")
         print(f"[落盘] fingerprint → {args.dump_fingerprint}")
+    if args.dump_stats:
+        stats = {
+            "window": {"start": _fmt(ts_s[0]), "end": _fmt(ts_s[-1]),
+                       "n_bars": len(bars), "days": len(bars) / 1440},
+            "cfg": cfg, "cfg_hash": cfg_hash(cfg),
+            "fees_bps": {"fee": eng.fees[0], "slip": eng.fees[1]},
+            "equity_init": cfg["account"]["init_equity"], "equity_final": eng.equity,
+            "state_final": eng.acct.state, "funding_imputed": eng.funding_imputed,
+            "funding_settlements": eng.funding_settlements,
+            "funnel_counts": dict(led.funnel_counts.most_common()),
+            "plan_reject_counts": dict(led.plan_reject_counts.most_common()),
+            "signals": led.signals, "trades": led.trades,
+            "orders": led.orders,
+        }
+        pathlib.Path(args.dump_stats).write_text(
+            json.dumps(stats, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"[落盘] stats → {args.dump_stats}（signals={len(led.signals)}）")
 
 
 if __name__ == "__main__":

@@ -46,11 +46,13 @@ def fingerprint(eng) -> str:
         "pending": eng.pending_sig_id, "vol_pctile": eng._vol_pctile,
         "atr5": eng._atr5, "atr15": eng._atr15, "fees": list(eng.fees),
         "funding_imputed": eng.funding_imputed,
+        "funding_settlements": eng.funding_settlements,
         "m1_atr": snap(eng.m1_atr), "volwin": snap(eng.volwin), "day": snap(eng.day),
         "hist": snap(eng.hist), "tf": snap(eng.tf), "agg": snap(eng._agg),
         "zones": snap(eng.zones), "acct": snap(eng.acct), "pos": snap(eng.pos),
         "broker": {"fail": eng.broker.fail_place_stop, "groups": snap(eng.broker.groups)},
         "ledger": {"signals": snap(eng.ledger.signals), "trades": snap(eng.ledger.trades),
-                   "orders": snap(eng.ledger.orders), "funnel": snap(eng.ledger.funnel_counts)},
+                   "orders": snap(eng.ledger.orders), "funnel": snap(eng.ledger.funnel_counts),
+                   "plan_reject": snap(eng.ledger.plan_reject_counts)},
     }
     return json.dumps(state, sort_keys=True, ensure_ascii=False)

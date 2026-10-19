@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
+from dataclasses import asdict
 
 from .broker import PaperBroker
 from .config import CFG, cfg_hash
@@ -38,6 +39,7 @@ class Engine:
         self.on_halt = on_halt
         self.funding_fn = funding_fn
         self.funding_imputed = 0
+        self.funding_settlements = 0
         self.acct = AccountState()
         self.pos: Position | None = None
         self.pending_sig_id: str | None = None
@@ -134,6 +136,7 @@ class Engine:
     # ---------- funding（§9.2） ----------
     def _settle_funding(self, bar: Bar) -> None:
         pos = self.pos
+        self.funding_settlements += 1
         rate = self.funding_fn(bar.ts) if self.funding_fn is not None else None
         if rate is None:
             rate = 0.0
@@ -296,6 +299,7 @@ class Engine:
                 "regime": self.regime, "atr5": self._atr5, "atr15": self._atr15,
                 "vol_pctl": self._vol_pctile, "spread_bps": None, "close": sig.close,
                 "zone_center": z.center if z else None, "zone_width": z.width if z else None,
+                "zone_grade": z.grade if z else None,
                 "bundle": {"trigger": b.trigger, "stop": b.stop, "tp": b.tp,
                            "R": b.R, "qty": b.qty}}
 
@@ -332,7 +336,11 @@ class Engine:
 
     # ---------- 状态快照（§8.5） ----------
     def persist(self) -> None:
-        """持仓字段为完整可重建集（recover.to_position 直接装配：含 qty0/legs/fees 等）。"""
+        """持仓字段为完整可重建集（recover.to_position 直接装配：含 qty0/legs/fees 等）。
+
+        v1 扩展 runtime：活动订单组（TRIGGER_SENT/PROTECTED/UNPROTECTED）全字段随快照落盘，
+        M7 Runner 重启时据此重建 PaperBroker 组（spec §8.5 字段之外的本地扩展，recover 忽略）。
+        """
         pos = self.pos
         self.ledger.dump_state({
             "ts": (self.last_ts or 0) + 60, "state": self.acct.state, "day": self.acct.day,
@@ -350,4 +358,10 @@ class Engine:
                 "bars_held": pos.bars_held, "mfe_r": pos.mfe_r, "mae_r": pos.mae_r,
                 "funding_paid": pos.funding_paid, "fees_paid": pos.fees_paid,
                 "legs": [list(x) for x in pos.legs]},
+            "runtime": {"groups": [
+                {"sig_id": g.sig_id, "bundle": asdict(g.bundle), "stage": g.stage,
+                 "qty": g.qty, "stop_px": g.stop_px, "tp_px": g.tp_px,
+                 "seg1_px": g.seg1_px, "protect_fills": g.protect_fills,
+                 "stop_filled": g.stop_filled, "tp_filled": g.tp_filled}
+                for g in self.broker.active()]},
         })

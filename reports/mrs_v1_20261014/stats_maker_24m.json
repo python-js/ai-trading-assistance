@@ -1,0 +1,444 @@
+{
+ "window": {
+  "start": "2024-10-14 02:49",
+  "end": "2026-10-14 00:00",
+  "n_bars": 1051032,
+  "days": 729.8833333333333
+ },
+ "cfg": {
+  "symbol": {
+   "ccxt": "BTC/USDT:USDT",
+   "internal": "BTC/USDT",
+   "exchange": "okx",
+   "contract_type": "perp"
+  },
+  "venue": {
+   "id": "okx",
+   "tick_size": 0.1,
+   "lot_step": 0.0001,
+   "contract_size": 0.01,
+   "maker_bps": 2.0,
+   "taker_bps": 2,
+   "slip_base_bps": 2.0
+  },
+  "funding_hours_utc": [
+   0,
+   8,
+   16
+  ],
+  "tf": {
+   "base": 60,
+   "state": [
+    300,
+    900,
+    1800
+   ],
+   "context": 900
+  },
+  "ma_periods": {
+   "fast": 5,
+   "slow": 20,
+   "long": 60
+  },
+  "atr_periods": {
+   "m1": 14,
+   "m5": 14,
+   "m15": 14
+  },
+  "adx_period": 14,
+  "swings": {
+   "k_confirm": 2,
+   "lookback_tf": {
+    "300": 4,
+    "900": 3,
+    "1800": 2
+   }
+  },
+  "regime": {
+   "adx_min": 20.0,
+   "adx_full": 25.0,
+   "half_size_factor": 0.5
+  },
+  "resonance": {
+   "w30": 2,
+   "w15": 1,
+   "w5": 1,
+   "req_score": 3,
+   "veto_rank": 2
+  },
+  "zones": {
+   "cluster_atr_mult": 0.5,
+   "width_min_atr": 0.35,
+   "width_atr_mult": 0.35,
+   "width_std_mult": 0.9,
+   "width_cap_atr": 0.9,
+   "near_atr": 0.35,
+   "top_n": 3,
+   "touch_weight": 0.4,
+   "rebound_weight": 0.4,
+   "multi_weight": 0.2,
+   "poc": {
+    "bins": 240
+   },
+   "round_steps": [
+    10,
+    50,
+    100,
+    250,
+    500
+   ]
+  },
+  "entry": {
+   "atr1_period": 14,
+   "t1_shadow_atr": 1.0,
+   "t2_max_bars": 3,
+   "t2_close_pos": 0.6,
+   "vol_pctile_n": 60,
+   "vol_pctile_min": 0.6,
+   "spread_max": 6.0,
+   "room_rr_min": 1.5,
+   "max_zone_touches": 2
+  },
+  "risk": {
+   "risk_pct": 0.35,
+   "atr_bounds_mult": [
+    0.8,
+    1.6
+   ],
+   "min_r_ticks_mult": 120,
+   "notional_max_pct": 250,
+   "liq_buffer_r": 3.0,
+   "leverage_default": 3,
+   "cooldown_min_bars": 25,
+   "zone_daily_reentry": 2
+  },
+  "manage": {
+   "seg1_r": 1.2,
+   "seg1_frac": 0.5,
+   "be_trigger_r": 1.5,
+   "be_lock_min_r": 0.05,
+   "tp_r_base": 2.2,
+   "trail_atr_mult": 1.2,
+   "trail_ma_tf": 300,
+   "trail_ma_n": 20,
+   "time_stop_bars": 60,
+   "time_stop_mfe_r": 0.8,
+   "session_windows_utc": [
+    "13:00-17:00"
+   ],
+   "event_blackout_min": 30,
+   "no_new_entry_after_loss": 0,
+   "kill": {
+    "daily_loss_r": 3.0,
+    "consec_stops": 3,
+    "error_stop_fail": 2,
+    "flatten_by_utc": "22:55"
+   }
+  },
+  "recon": {
+   "cron": "*/30 * * * *",
+   "heartbeat_sec": 60
+  },
+  "account": {
+   "init_equity": 50000.0
+  }
+ },
+ "cfg_hash": "blake2:098863d02252b319",
+ "fees_bps": {
+  "fee": 2,
+  "slip": 2.0
+ },
+ "equity_init": 50000.0,
+ "equity_final": 49975.8799119379,
+ "state_final": "IDLE",
+ "funding_imputed": 0,
+ "funding_settlements": 0,
+ "funnel_counts": {
+  "SESSION": 875627,
+  "ZONE": 58228,
+  "EVENT": 44530,
+  "REGIME": 37570,
+  "RESON": 25354,
+  "VOL": 6014,
+  "NO_TRIGGER": 3628,
+  "BUSY": 54,
+  "PLAN": 24,
+  "OK": 2,
+  "COOLDOWN": 1
+ },
+ "plan_reject_counts": {
+  "COST": 17,
+  "ROOM": 4,
+  "STOP_FAR": 3
+ },
+ "signals": [
+  {
+   "ts": 1781103600,
+   "cfg_hash": "blake2:098863d02252b319",
+   "sig_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "sym": "BTC/USDT",
+   "dir": "LONG",
+   "type": "T2",
+   "zone_id": "b5689da412cb",
+   "suppressed": null,
+   "gates_passed": [
+    "SESSION",
+    "EVENT",
+    "REGIME",
+    "RESON",
+    "ZONE",
+    "SPREAD-NA",
+    "VOL",
+    "T2"
+   ],
+   "ranks": [
+    0,
+    2,
+    1
+   ],
+   "regime": "FULL",
+   "atr5": 215.20398133292403,
+   "atr15": 320.47433189254986,
+   "vol_pctl": 0.9166666666666666,
+   "spread_bps": null,
+   "close": 62166.1,
+   "zone_center": 62107.3,
+   "zone_width": 112.2,
+   "zone_grade": 2.8441910640919965,
+   "bundle": {
+    "trigger": 62175.2,
+    "stop": 61749.600000000006,
+    "tp": 62911.600000000006,
+    "R": 425.59999999999854,
+    "qty": 0.4111
+   },
+   "mrs_ver": "1.0"
+  },
+  {
+   "ts": 1788529860,
+   "cfg_hash": "blake2:098863d02252b319",
+   "sig_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "sym": "BTC/USDT",
+   "dir": "SHORT",
+   "type": "T2",
+   "zone_id": "01f0036ea38c",
+   "suppressed": null,
+   "gates_passed": [
+    "SESSION",
+    "EVENT",
+    "REGIME",
+    "RESON",
+    "ZONE",
+    "SPREAD-NA",
+    "VOL",
+    "T2"
+   ],
+   "ranks": [
+    0,
+    -2,
+    -2
+   ],
+   "regime": "FULL",
+   "atr5": 283.9011615982315,
+   "atr15": 360.21890181004227,
+   "vol_pctl": 0.7833333333333333,
+   "spread_bps": null,
+   "close": 79480.0,
+   "zone_center": 79515.0,
+   "zone_width": 126.10000000000001,
+   "zone_grade": 2.228403337718861,
+   "bundle": {
+    "trigger": 79479.9,
+    "stop": 79768.1,
+    "tp": 78846.0,
+    "R": 288.17512144803385,
+    "qty": 0.6056
+   },
+   "mrs_ver": "1.0"
+  }
+ ],
+ "trades": [
+  {
+   "ts": 1781103600,
+   "sig_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "trade_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "event": "init",
+   "qty": 0.4111,
+   "trigger": 62175.2,
+   "entry_px_real": 62187.635039999994,
+   "slip_ticks": 124.35039999996661,
+   "stop": 61749.600000000006,
+   "tp": 62911.600000000006,
+   "R": 425.59999999999854,
+   "risk_usdt": 174.96415999999942,
+   "fees_bps": {
+    "fee": 2,
+    "slip": 2.0
+   }
+  },
+  {
+   "ts": 1781104200,
+   "sig_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "trade_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "event": "exit",
+   "reason": "TRAIL_MA",
+   "px": 61897.71798,
+   "qty": 0.4111,
+   "pnl_usdt": -129.3872010913013,
+   "pnl_R": -0.7395068858176539,
+   "mfe_R": 0.4945135338345994,
+   "mae_R": -0.6523379699247995,
+   "bars_held": 9,
+   "funding_paid": 0.0,
+   "be_done": false,
+   "seg_done": false
+  },
+  {
+   "ts": 1788529920,
+   "sig_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "trade_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "event": "init",
+   "qty": 0.6056,
+   "trigger": 79479.9,
+   "entry_px_real": 79464.00402,
+   "slip_ticks": 158.95980000001146,
+   "stop": 79768.1,
+   "tp": 78846.0,
+   "R": 288.17512144803385,
+   "risk_usdt": 174.51885354892931,
+   "fees_bps": {
+    "fee": 2,
+    "slip": 2.0
+   }
+  },
+  {
+   "ts": 1788532500,
+   "sig_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "trade_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "event": "exit",
+   "reason": "SEG1_THEN_TRAIL",
+   "px": 79382.77338,
+   "qty": 0.3028,
+   "pnl_usdt": 105.2671130291992,
+   "pnl_R": 0.6031847613512186,
+   "mfe_R": 1.4866100093836192,
+   "mae_R": -0.27065480048412804,
+   "bars_held": 42,
+   "funding_paid": 0.0,
+   "be_done": false,
+   "seg_done": true
+  }
+ ],
+ "orders": [
+  {
+   "ts": 1781103540,
+   "sig_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "client_oid": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "order_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb:trig",
+   "type": "TRIGGER",
+   "state": "SENT",
+   "px": 62175.2,
+   "qty": 0.4111
+  },
+  {
+   "ts": 1781103600,
+   "sig_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "client_oid": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "order_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb:trig",
+   "type": "TRIGGER",
+   "state": "FILLED",
+   "px": 62187.635039999994,
+   "qty": 0.4111
+  },
+  {
+   "ts": 1781103600,
+   "sig_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "client_oid": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "order_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb:tp",
+   "type": "LIMIT_REDUCE",
+   "state": "PLACED",
+   "px": 62911.600000000006,
+   "qty": 0.4111
+  },
+  {
+   "ts": 1781103600,
+   "sig_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "client_oid": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "order_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb:stop",
+   "type": "STOP_MARKET_REDUCE",
+   "state": "PLACED",
+   "px": 61749.600000000006,
+   "qty": 0.4111
+  },
+  {
+   "ts": 1781104140,
+   "sig_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "client_oid": "de6c8321-d62d-5555-ad9f-5388a553c0bb",
+   "order_id": "de6c8321-d62d-5555-ad9f-5388a553c0bb:mkt",
+   "type": "MARKET_REDUCE",
+   "state": "FILLED",
+   "px": 61897.71798,
+   "qty": 0.4111
+  },
+  {
+   "ts": 1788529800,
+   "sig_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "client_oid": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "order_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6:trig",
+   "type": "TRIGGER",
+   "state": "SENT",
+   "px": 79479.9,
+   "qty": 0.6056
+  },
+  {
+   "ts": 1788529920,
+   "sig_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "client_oid": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "order_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6:trig",
+   "type": "TRIGGER",
+   "state": "FILLED",
+   "px": 79464.00402,
+   "qty": 0.6056
+  },
+  {
+   "ts": 1788529920,
+   "sig_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "client_oid": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "order_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6:tp",
+   "type": "LIMIT_REDUCE",
+   "state": "PLACED",
+   "px": 78846.0,
+   "qty": 0.6056
+  },
+  {
+   "ts": 1788529920,
+   "sig_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "client_oid": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "order_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6:stop",
+   "type": "STOP_MARKET_REDUCE",
+   "state": "PLACED",
+   "px": 79768.1,
+   "qty": 0.6056
+  },
+  {
+   "ts": 1788531600,
+   "sig_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "client_oid": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "order_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6:seg1",
+   "type": "LIMIT_REDUCE",
+   "state": "FILLED",
+   "px": 79134.1,
+   "qty": 0.3028
+  },
+  {
+   "ts": 1788532440,
+   "sig_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "client_oid": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6",
+   "order_id": "d1259949-7f08-5b0b-b481-1a6a38f4ccd6:mkt",
+   "type": "MARKET_REDUCE",
+   "state": "FILLED",
+   "px": 79382.77338,
+   "qty": 0.3028
+  }
+ ]
+}

@@ -2,12 +2,14 @@
 
 - 内存记录始终保留（回测/报表用）；out_dir 给出时同步追加落盘，signal/trade/orders 每条 fsync（§8）。
 - funnel 逐 1m 收盘一行、是拒单计数唯一来源（§8.2）；stop_at 取值集合在本文件常量登记。
-- mrs_state.json 原子写（tmp + os.replace，§8.5）。
+- mrs_state.json 原子写（tmp + os.replace，§8.5）；replace 对 Windows 瞬态文件锁
+  （读句柄/杀软占用 → WinError 5）做有界重试（10×100ms），超限抛错。
 """
 from __future__ import annotations
 
 import json
 import os
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -25,6 +27,7 @@ class Ledger:
         if self.out_dir:
             self.out_dir.mkdir(parents=True, exist_ok=True)
         self.funnel_counts: Counter = Counter()
+        self.plan_reject_counts: Counter = Counter()  # §9.5 PLAN 拒绝原因分布（COST 等）
         self.signals: list[dict] = []
         self.trades: list[dict] = []   # init/exit 两类行，trade_id 配对
         self.orders: list[dict] = []
@@ -48,6 +51,8 @@ class Ledger:
                detail: dict | None = None) -> None:
         assert stop_at in STOP_AT, f"未登记 funnel 标签: {stop_at}"
         self.funnel_counts[stop_at] += 1
+        if plan_reject:
+            self.plan_reject_counts[plan_reject] += 1
         if self.out_dir:
             self._append("mrs_funnel", {"ts": ts, "stop_at": stop_at,
                                         "plan_reject": plan_reject,
@@ -69,4 +74,11 @@ class Ledger:
             json.dump(obj, f, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, self.out_dir / "mrs_state.json")
+        for attempt in range(10):
+            try:
+                os.replace(tmp, self.out_dir / "mrs_state.json")
+                return
+            except PermissionError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.1)

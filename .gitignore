@@ -6,6 +6,7 @@ __pycache__/
 data/logs/
 data/charts/
 data/backtest_reports/
+data/mrs_paper/
 
 # 前端（Next.js）
 frontend/node_modules/
