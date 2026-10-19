@@ -9,6 +9,10 @@ v1 口径：
   4) 订单：按 sig_id 分组，比对 (type,state,px,qty) 序列。
   5) funnel：窗口内 stop_at / plan_reject 计数与逐行 (ts, stop_at, plan_reject) 比对。
   6) 一致率 = 全部分组逐条相等的占比；任一分组不一致 → 非零退出。
+  7) 中期窗口（台账已有历史成交）对照须传
+     `--set account.init_equity=<窗口起点权益>`；否则两 run 权益不同 → 风险预算不同 →
+     qty/订单/成交金额必然不一致（并非引擎非确定性）。窗口起点权益 = 之前各笔 exit
+     pnl_usdt 累加；首笔之前的历史窗口无需对齐（均为 50,000）。
 用法（项目根）：
   .venv/Scripts/python.exe backend/scripts/compare_mrs_paper_log.py \\
       --paper-dir <paper_out_dir> --start 2026-06-01 --end 2026-06-16 \\
