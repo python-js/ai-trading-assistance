@@ -80,6 +80,40 @@ const calcBoll = (bars: Ohlcv['bars']) => {
   }
   return { up, mid, low };
 };
+type MacdBundle = {
+  diff: ISeriesApi<'Line'>;
+  dea: ISeriesApi<'Line'>;
+  hist: ISeriesApi<'Histogram'>;
+};
+type MacdVals = { diff: number | null; dea: number | null; hist: number | null };
+const EMPTY_MACD: MacdVals = { diff: null, dea: null, hist: null };
+
+const macdEma = (prev: number, x: number, n: number) => prev + (x - prev) * (2 / (n + 1));
+/** MACD(12,26,9)：DIFF=EMA12-EMA26，DEA=EMA9(DIFF)，STICK=2×(DIFF-DEA)。 */
+const calcMacd = (bars: Ohlcv['bars']) => {
+  const diff: { time: number; value: number }[] = [];
+  const dea: { time: number; value: number }[] = [];
+  const hist: { time: number; value: number; color: string }[] = [];
+  if (bars.length) {
+    let e12 = bars[0].close;
+    let e26 = bars[0].close;
+    let deaVal = 0;
+    bars.forEach((b, i) => {
+      e12 = macdEma(e12, b.close, 12);
+      e26 = macdEma(e26, b.close, 26);
+      const d = e12 - e26;
+      deaVal = i === 0 ? d : macdEma(deaVal, d, 9);
+      const stick = 2 * (d - deaVal);
+      diff.push({ time: b.time, value: d });
+      dea.push({ time: b.time, value: deaVal });
+      hist.push({ time: b.time, value: stick, color: stick >= 0 ? '#3f8600' : '#cf1322' });
+    });
+  }
+  return { diff, dea, hist };
+};
+const fmtInd = (x: number | null): string =>
+  x == null || !Number.isFinite(x) ? '-' : x.toFixed(4);
+
 const lastVal = (a: { value: number }[]): number | null =>
   a.length ? a[a.length - 1].value : null;
 const legendOf = (
@@ -125,7 +159,11 @@ export default function ChartPage() {
   const [loading, setLoading] = useState(false);
   const [bollOn, setBollOn] = useState(true);
   const [legend, setLegend] = useState<LegendVals>(EMPTY_LEGEND);
+  const [macdLegend, setMacdLegend] = useState<MacdVals>(EMPTY_MACD);
   const elRef = useRef<HTMLDivElement>(null);
+  const macdElRef = useRef<HTMLDivElement>(null);
+  const macdSeriesRef = useRef<MacdBundle | null>(null);
+  const macdLastRef = useRef({ diff: 0, dea: 0, hist: 0 });
   const seriesRef = useRef<SeriesBundle | null>(null);
   const lastTsRef = useRef<LastTs>({
     bars: 0,
@@ -170,7 +208,9 @@ export default function ChartPage() {
       layout: { background: { color: '#ffffff' }, textColor: '#333' },
       grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
       localization: { timeFormatter: (t: Time) => fmtBjTick(t) },
+      rightPriceScale: { minimumWidth: 72 },
       timeScale: {
+        visible: false, // 时间轴由下方 MACD 图统一展示
         timeVisible: true,
         secondsVisible: false,
         tickMarkFormatter: (t: Time) => fmtBjTick(t, key?.timeframe !== '1d'),
@@ -247,14 +287,92 @@ export default function ChartPage() {
       bollLow: boll.low[boll.low.length - 1]?.time ?? 0,
     };
     setLegend(legendOf(data.sma5, data.sma10, data.sma20, boll));
+    const macd = calcMacd(data.bars);
+    setMacdLegend({ diff: lastVal(macd.diff), dea: lastVal(macd.dea), hist: lastVal(macd.hist) });
+    const macdEl = macdElRef.current;
+    let macdChart: ReturnType<typeof createChart> | null = null;
+    if (macdEl) {
+      macdChart = createChart(macdEl, {
+        height: 180,
+        layout: { background: { color: '#ffffff' }, textColor: '#333' },
+        grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
+        localization: { timeFormatter: (t: Time) => fmtBjTick(t) },
+        rightPriceScale: { minimumWidth: 72 },
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+          tickMarkFormatter: (t: Time) => fmtBjTick(t, key?.timeframe !== '1d'),
+        },
+      });
+      const hist = macdChart.addHistogramSeries({
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat,
+      });
+      hist.setData(
+        macd.hist.map((p) => ({
+          time: p.time as UTCTimestamp,
+          value: p.value,
+          color: p.color,
+        }))
+      );
+      hist.createPriceLine({
+        price: 0,
+        color: '#bfbfbf',
+        lineWidth: 1,
+        lineStyle: LineStyle.Solid,
+        axisLabelVisible: false,
+        title: '',
+      });
+      const diff = macdChart.addLineSeries({
+        color: '#2f80ed',
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat,
+      });
+      diff.setData(macd.diff.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+      const dea = macdChart.addLineSeries({
+        color: '#f5a623',
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        priceFormat,
+      });
+      dea.setData(macd.dea.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+      macdSeriesRef.current = { diff, dea, hist };
+      macdLastRef.current = {
+        diff: macd.diff[macd.diff.length - 1]?.time ?? 0,
+        dea: macd.dea[macd.dea.length - 1]?.time ?? 0,
+        hist: macd.hist[macd.hist.length - 1]?.time ?? 0,
+      };
+      // 双向同步时间轴：两图同宽同逻辑区间，拖动/缩放保持对齐。
+      let syncing = false;
+      const syncRange = (src: ReturnType<typeof createChart>, dst: ReturnType<typeof createChart>) =>
+        src.timeScale().subscribeVisibleLogicalRangeChange((r) => {
+          if (!r || syncing) return;
+          syncing = true;
+          dst.timeScale().setVisibleLogicalRange(r);
+          syncing = false;
+        });
+      syncRange(chart, macdChart);
+      syncRange(macdChart, chart);
+    }
     builtKeyRef.current = key ? `${key.symbol}|${key.timeframe}` : '';
     chart.timeScale().fitContent();
-    const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
+    macdChart?.timeScale().fitContent();
+    const ro = new ResizeObserver(() => {
+      chart.applyOptions({ width: el.clientWidth });
+      if (macdEl) macdChart?.applyOptions({ width: macdEl.clientWidth });
+    });
     ro.observe(el);
+    if (macdEl) ro.observe(macdEl);
     return () => {
       ro.disconnect();
       chart.remove();
+      macdChart?.remove();
       seriesRef.current = null;
+      macdSeriesRef.current = null;
     };
   }, [data]);
 
@@ -307,6 +425,35 @@ export default function ChartPage() {
             }
           }
           setLegend(legendOf(res.sma5, res.sma10, res.sma20, boll));
+          const macdS = macdSeriesRef.current;
+          if (macdS) {
+            const macd = calcMacd(res.bars);
+            const ml = macdLastRef.current;
+            for (const p of macd.diff) {
+              if (p.time < ml.diff) continue;
+              macdS.diff.update({ time: p.time as UTCTimestamp, value: p.value });
+              ml.diff = p.time;
+            }
+            for (const p of macd.dea) {
+              if (p.time < ml.dea) continue;
+              macdS.dea.update({ time: p.time as UTCTimestamp, value: p.value });
+              ml.dea = p.time;
+            }
+            for (const p of macd.hist) {
+              if (p.time < ml.hist) continue;
+              macdS.hist.update({
+                time: p.time as UTCTimestamp,
+                value: p.value,
+                color: p.color,
+              });
+              ml.hist = p.time;
+            }
+            setMacdLegend({
+              diff: lastVal(macd.diff),
+              dea: lastVal(macd.dea),
+              hist: lastVal(macd.hist),
+            });
+          }
           const ms = toMarkers(res.signals);
           const mk = `${ms.length}:${res.signals[res.signals.length - 1]?.signal_id ?? 0}`;
           if (mk !== markerKeyRef.current) {
@@ -371,6 +518,42 @@ export default function ChartPage() {
           </span>
         </div>
         <div ref={elRef} style={{ width: '100%' }} />
+        <div
+          style={{
+            margin: '8px 0 2px',
+            fontSize: 12,
+            color: '#666',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: '6px 20px',
+          }}
+        >
+          {[
+            { label: 'DIFF', color: '#2f80ed', value: macdLegend.diff },
+            { label: 'DEA', color: '#f5a623', value: macdLegend.dea },
+            {
+              label: 'STICK',
+              color: 'linear-gradient(90deg,#3f8600 50%,#cf1322 50%)',
+              value: macdLegend.hist,
+            },
+          ].map((m) => (
+            <span key={m.label}>
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 20,
+                  height: 3,
+                  background: m.color,
+                  verticalAlign: 'middle',
+                  marginRight: 4,
+                }}
+              />
+              {m.label} {fmtInd(m.value)}
+            </span>
+          ))}
+        </div>
+        <div ref={macdElRef} style={{ width: '100%' }} />
       </Card>
       <Card title="本标的最近信号（可标注）" size="small" style={{ marginTop: 16 }}>
         <SignalTable signals={signals} onChanged={() => key && load(key)} />
