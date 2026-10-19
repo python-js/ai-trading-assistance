@@ -1,0 +1,24 @@
+{
+  "short": {
+    "ENV": 655,
+    "STRUCT": 690,
+    "RSI": 307,
+    "ZONE": 728,
+    "REVERSAL": 685,
+    "COST": 44,
+    "OK": 22,
+    "BLOCKED_POS": 7,
+    "MACD": 1
+  },
+  "long": {
+    "RSI": 279,
+    "STRUCT": 627,
+    "ZONE": 631,
+    "ENV": 486,
+    "REVERSAL": 478,
+    "COST": 44,
+    "OK": 27,
+    "BLOCKED_POS": 4,
+    "MACD": 2
+  }
+}
